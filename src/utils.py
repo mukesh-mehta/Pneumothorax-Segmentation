@@ -1,4 +1,7 @@
 import numpy as np
+import cv2
+import torch
+from sklearn.model_selection import train_test_split
 
 def rle2mask(rle, height, width):
 	mask= np.zeros(width* height)
@@ -14,3 +17,16 @@ def rle2mask(rle, height, width):
 
 	return mask.reshape(width, height)
 
+
+def load_image(path, mask = False):
+    img = cv2.imread(str(path))
+    if mask:
+        img = img[:, :, 0:1] // 255
+        return torch.from_numpy(img).float().permute([2, 0, 1])
+    else:
+        img = img / 255.0
+        return torch.from_numpy(img).float().permute([2, 0, 1])
+
+def train_test_split_stratified(df, test_size = 0.1,random_state=42):
+	train, val = train_test_split(df, test_size = test_size,random_state=random_state)
+	return train, val
