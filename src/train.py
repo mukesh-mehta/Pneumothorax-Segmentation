@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, _LRScheduler, ReduceLROnPlateau
 import pdb
 import settings
-from loader import get_train_loaders, add_depth_channel
+from loader import load_train_val_dataset#, add_depth_channel
 from unet_models import UNetResNet, UNetResNetAtt, UNetResNetV3
 from unet_new import UNetResNetV4, UNetResNetV5, UNetResNetV6, UNet7, UNet8
 from unet_se import UNetResNetSE
@@ -87,7 +87,7 @@ def train(args):
     else:
         optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
 
-    train_loader, val_loader = get_train_loaders(args.ifold, batch_size=args.batch_size, dev_mode=False, pad_mode=args.pad_mode, meta_version=args.meta_version, pseudo_label=args.pseudo)
+    train_loader, val_loader = load_train_val_dataset(batch_size=args.batch_size) #1
 
     if args.lrs == 'plateau':
         lr_scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=args.factor, patience=args.patience, min_lr=args.min_lr)

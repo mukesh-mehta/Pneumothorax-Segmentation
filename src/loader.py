@@ -37,18 +37,24 @@ class LoadDataset(data.Dataset):
             mask = load_image(mask_path, mask = True)
             return image, mask
 
-def load_train_val_dataset():
+def load_train_val_dataset(batch_size= 16, num_workers=6):
     dataframe = pd.read_csv(config.ENCODING_FILE)
     train, val = train_test_split_stratified(dataframe)
-    return LoadDataset(list(train[config.ID_COLUMN].values)), LoadDataset(list(val[config.ID_COLUMN].values))
+
+    train_set = LoadDataset(list(train[config.ID_COLUMN].values))
+    val_set = LoadDataset(list(val[config.ID_COLUMN].values))
+
+    train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    return train_loader, val_loader
 
 if __name__ == '__main__':
-    train, val = load_train_val_dataset()
-    for image, mask in data.DataLoader(train, batch_size = 10,shuffle=True, num_workers=6):
+    train_loader, val_loader = load_train_val_dataset(batch_size = 10, num_workers=6)
+    for image, mask in train_loader:
         print("check train")
         print(image.shape, mask.shape)
         break
-    for image, mask in data.DataLoader(val, batch_size = 10,shuffle=True, num_workers=6):
+    for image, mask in val_loader:
         print("check val")
         print(image.shape, mask.shape)
         break
