@@ -10,14 +10,14 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, _LRScheduler, ReduceLROnPlateau
 import pdb
 import settings
-from loader import load_train_val_dataset#, add_depth_channel
-from unet_models import UNetResNet, UNetResNetAtt, UNetResNetV3
-from unet_new import UNetResNetV4, UNetResNetV5, UNetResNetV6, UNet7, UNet8
-from unet_se import UNetResNetSE
-from lovasz_losses import lovasz_hinge, lovasz_softmax
-from dice_losses import mixed_dice_bce_loss, FocalLoss2d
-from postprocessing import crop_image, binarize, crop_image_softmax, resize_image
-from metrics import intersection_over_union, intersection_over_union_thresholds
+from loader import load_train_val_dataset# add_depth_channel
+# from unet_models import UNetResNet, UNetResNetAtt, UNetResNetV3
+from model import UNetResNetV4#, UNetResNetV5, UNetResNetV6, UNet7, UNet8
+# from unet_se import UNetResNetSE
+# from lovasz_losses import lovasz_hinge, lovasz_softmax
+from losses import mixed_dice_bce_loss, FocalLoss2d
+# from postprocessing import crop_image, binarize, crop_image_softmax, resize_image
+# from metrics import intersection_over_union, intersection_over_union_thresholds
 
 MODEL_DIR = settings.MODEL_DIR
 focal_loss2d = FocalLoss2d()
@@ -37,7 +37,7 @@ class CyclicExponentialLR(_LRScheduler):
         self.last_lr = lr
         return [lr]*len(self.base_lrs)
 
-def weighted_loss(args, output, target, epoch=0):
+def weighted_loss(args, output, target, epoch0):
     mask_output, salt_output = output
     mask_target, salt_target = target
 
@@ -60,8 +60,8 @@ def weighted_loss(args, output, target, epoch=0):
 def train(args):
     print('start training...')
 
-    model = eval(args.model_name)(args.layers, num_filters=args.nf)
-    model_subdir = args.pad_mode
+    model = eval(args.model_name)(args.layers, num_filters=args.nf)#
+    model_subdir = args.pad_mode#
     if args.meta_version == 2:
         model_subdir = args.pad_mode+'_meta2'
     if args.exp_name is None:
@@ -87,7 +87,7 @@ def train(args):
     else:
         optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
 
-    train_loader, val_loader = load_train_val_dataset(batch_size=args.batch_size) #1
+    train_loader, val_loader = load_train_val_dataset(batch_size=args.batch_size)
 
     if args.lrs == 'plateau':
         lr_scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=args.factor, patience=args.patience, min_lr=args.min_lr)
