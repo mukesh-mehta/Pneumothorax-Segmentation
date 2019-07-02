@@ -2,6 +2,7 @@ from torch import nn
 from torch.nn import functional as F
 import torch
 from torchvision import models
+from torchsummary import summary
 from torchvision.models import resnet34, resnet101, resnet50, resnet152
 import torchvision
 import pdb
@@ -215,10 +216,11 @@ class UNetResNetV4(nn.Module):
 def test():
     model = UNetResNetV4(34).cuda()
     model.freeze_bn()
-    inputs = torch.randn(2,3,128,128).cuda()
-    out, _ = model(inputs)
+    # inputs = torch.randn(2,3,128,128).cuda()
+    # out, _ = model(inputs)
     #print(model)
-    print(out.size()) #, cls_taret.size())
+    # model = model.to("cpu")
+    print(summary(model, input_size=(3, 128, 128))) #, cls_taret.size())
     #print(out)
 
 
