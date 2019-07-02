@@ -10,8 +10,7 @@ class DiceLoss(nn.Module):
         self.eps = eps
 
     def forward(self, output, target):
-        return 1 - (2 * torch.sum(output * target) + self.smooth) / (
-                torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
+        return 1 - (2 * torch.sum(output * target) + self.smooth) /(torch.sum(output) + torch.sum(target) + self.smooth + self.eps)
 
 
 

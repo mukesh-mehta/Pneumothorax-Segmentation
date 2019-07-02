@@ -13,7 +13,7 @@ import pdb
 import config
 from torchsummary import summary
 from loader import load_train_val_dataset# add_depth_channel
-from unet_models import UNet11
+# from unet_models import UNet11, UNetResNet
 from model import UNetResNetV4#, UNetResNetV5, UNetResNetV6, UNet7, UNet8
 # from unet_se import UNetResNetSE
 # from lovasz_losses import lovasz_hinge, lovasz_softmax
@@ -40,8 +40,9 @@ class CyclicExponentialLR(_LRScheduler):
         return [lr]*len(self.base_lrs)
 
 def criterion(logit, truth ):
-    loss = DiceLoss()(logit, truth)
-    return loss
+    # print(type(logit[0]), type(truth))
+    loss = DiceLoss()
+    return loss(logit[0], truth)
 
 def get_lrs(optimizer):
     lrs = []
@@ -55,14 +56,14 @@ def train(args):
     #load train and val data
     train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6)
 
-    # model = eval(args.model_name)(args.layers, num_filters=args.nf)
-    model = eval(args.model_name)(num_filters=args.nf).cuda()
+    model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
+    # model = eval(args.model_name)(num_filters=args.nf).cuda()
     
     #filename to save models
     if args.exp_name is None:
-        model_file = os.path.join(MODEL_DIR, model.name, 'best_{}.pth'.format(args.ifold))
+        model_file = os.path.join(MODEL_DIR, 'best_{}.pth'.format(args.ifold))
     else:
-        model_file = os.path.join(MODEL_DIR, args.exp_name, model.name, 'best_{}.pth'.format(args.ifold))
+        model_file = os.path.join(MODEL_DIR, args.exp_name, 'best_{}.pth'.format(args.ifold))
 
     parent_dir = os.path.dirname(model_file)
     if not os.path.exists(parent_dir):
@@ -72,7 +73,7 @@ def train(args):
         optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=0.0001)
     else:
         optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
-
+    best_loss = 1
     model.train()
     for epoch in range(args.epochs):
         current_lr = get_lrs(optimizer)
@@ -127,7 +128,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=1, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     parser.add_argument('--epochs', default=200, type=int, help='epoch')
     parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
@@ -137,7 +138,7 @@ if __name__ == '__main__':
     parser.add_argument('--t_max', default=15, type=int, help='lr scheduler patience')
     parser.add_argument('--pad_mode', default='edge', choices=['reflect', 'edge', 'resize'], help='pad method')
     parser.add_argument('--exp_name', default='depths', type=str, help='exp name')
-    parser.add_argument('--model_name', default='UNet11', type=str, help='')
+    parser.add_argument('--model_name', default='UNetResNetV4', type=str, help='')
     parser.add_argument('--init_ckp', default=None, type=str, help='resume from checkpoint path')
     parser.add_argument('--val', action='store_true')
     parser.add_argument('--store_loss_model', action='store_true')

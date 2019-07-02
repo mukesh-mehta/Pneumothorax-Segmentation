@@ -17,5 +17,5 @@ MODEL_DIR = os.path.join(DATA_DIR, 'models')
 ID_COLUMN = 'ImageId'
 ENCODING_COL = 'EncodedPixels'
 
-HEIGHT = 1024
-WIDTH = 1024
+HEIGHT = 128
+WIDTH = 128
