@@ -129,6 +129,8 @@ class UNetResNetV4(nn.Module):
         self.num_classes = num_classes
         self.dropout_2d = dropout_2d
 
+        self.sig = nn.Sigmoid()
+
         self.resnet, bottom_channel_nr = create_resnet(encoder_depth)
 
         self.encoder1 = EncoderBlock(
@@ -186,7 +188,7 @@ class UNetResNetV4(nn.Module):
 
         f = F.dropout2d(f, p=self.dropout_2d)
 
-        return self.logit(f), None
+        return self.sig(self.logit(f))
     
     def freeze_bn(self):
         '''Freeze BatchNorm layers.'''

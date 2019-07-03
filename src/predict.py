@@ -23,8 +23,8 @@ def predict(args, model, checkpoint, out_file):
     with torch.no_grad():
         for i, img in enumerate(test_loader):
             img = img[0].type(torch.FloatTensor).cuda()
-            output, _ = model(img)
-            output = torch.sigmoid(output).cpu().data.numpy()
+            output= model(img).cpu().data.numpy()
+            # output = torch.sigmoid(output)
             outputs.append(output)
 
             print('{} / {}'.format(args.batch_size*(i+1), test_loader.num), end='\r')

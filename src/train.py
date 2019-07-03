@@ -42,7 +42,7 @@ class CyclicExponentialLR(_LRScheduler):
 def criterion(logit, truth ):
     # print(type(logit[0]), type(truth))
     loss = DiceLoss()
-    return loss(logit[0], truth)
+    return loss(logit, truth)
 
 def get_lrs(optimizer):
     lrs = []
