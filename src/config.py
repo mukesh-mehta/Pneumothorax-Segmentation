@@ -14,8 +14,10 @@ META_FILE = os.path.join(DATA_DIR, 'meta.csv')
 
 MODEL_DIR = os.path.join(DATA_DIR, 'models')
 
+TEST_FILE = "../data/sample_submission.csv"
+
 ID_COLUMN = 'ImageId'
 ENCODING_COL = 'EncodedPixels'
 
-HEIGHT = 128
-WIDTH = 128
+HEIGHT = 256
+WIDTH = 256

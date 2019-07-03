@@ -2,3 +2,4 @@ data
 exp_notebooks
 src/__pycache__/
 *.txt
+*.csv

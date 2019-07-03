@@ -54,7 +54,7 @@ def get_lrs(optimizer):
 def train(args):
     print("start training....")
     #load train and val data
-    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6)
+    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode)
 
     model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
     # model = eval(args.model_name)(num_filters=args.nf).cuda()
@@ -73,12 +73,12 @@ def train(args):
         optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=0.0001)
     else:
         optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
-    best_loss = 1
+    best_loss = 10
     model.train()
+
     for epoch in range(args.epochs):
         current_lr = get_lrs(optimizer)
         train_loss = 0
-        train_acc = 0
         bg = time.time()
         for batch_idx, data in enumerate(train_loader):
             image, mask = data
@@ -93,12 +93,12 @@ def train(args):
 
             optimizer.step()
             train_loss += loss.item()
-            train_acc += dice
             print('\r {:4d} | {:.5f} | {:4d}/{} | {:.4f} | {:.4f} |'.format(
                 epoch, float(current_lr[0]), args.batch_size*(batch_idx+1), train_loader.num, loss.item(), train_loss/(batch_idx+1)), end='')
-            
+        
+        del loss
         val_loss = 0
-        for batch_idx, data in data.DataLoader(dataset_val, batch_size = 8, shuffle = False):
+        for batch_idx, data in enumerate(val_loader):
             image, mask = data
             image = image.cuda()
             y_pred = model(Variable(image))
@@ -107,18 +107,21 @@ def train(args):
             val_loss+= loss.item()
 
         _save_ckp = ''
+        loss = val_loss/(batch_idx+1)
         if loss < best_loss:
             best_loss = loss
             torch.save(model.state_dict(), model_file)
             _save_ckp = '*'
         
 
-        print(' {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.4f} | {:.2f} | {:4s} | {:.4f} |'.format(
+        print(' {} | {} | {} | {} |'.format(
             val_loss/(batch_idx+1), best_loss, (time.time() - bg) / 60, _save_ckp))
         
         log.info('epoch {}: train loss: {:.4f} best loss: {:.4f} lr: {} {}'
             .format(epoch, train_loss, best_loss, current_lr, _save_ckp))
-
+        del image, mask, data, loss, train_loss
+        torch.cuda.empty_cache()
+    print(model_file)
 
 if __name__ == '__main__':
     
@@ -130,7 +133,7 @@ if __name__ == '__main__':
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
     parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--epochs', default=200, type=int, help='epoch')
+    parser.add_argument('--epochs', default=2, type=int, help='epoch')
     parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument('--lrs', default='cosine', choices=['cosine', 'plateau'], help='LR sceduler')
     parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
@@ -147,7 +150,7 @@ if __name__ == '__main__':
     parser.add_argument('--pseudo', action='store_true')
     
     args = parser.parse_args()
-
+    args.dev_mode=False
     print(args)
     ifolds = [int(x) for x in args.ifolds.split(',')]
     print(ifolds)

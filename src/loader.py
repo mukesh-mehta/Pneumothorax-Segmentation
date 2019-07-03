@@ -37,18 +37,33 @@ class LoadDataset(data.Dataset):
             mask = load_image(mask_path, mask = True)
             return image, mask
 
-def load_train_val_dataset(batch_size= 16, num_workers=6):
+def load_train_val_dataset(batch_size= 16, num_workers=6, dev_mode=False):
     dataframe = pd.read_csv(config.ENCODING_FILE)
+    if dev_mode:
+        dataframe = dataframe.iloc[:100]
     train, val = train_test_split_stratified(dataframe)
 
     train_set = LoadDataset(list(train[config.ID_COLUMN].values))
     val_set = LoadDataset(list(val[config.ID_COLUMN].values))
 
     train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    val_loader = data.DataLoader(val_set, batch_size=int(batch_size/2), shuffle=False, num_workers=num_workers)
     train_loader.num = len(train_set)
     val_loader.num = len(val_set)
     return train_loader, val_loader
+
+
+def get_test_loader(batch_size=16, index=0, dev_mode=False):
+    test_meta = pd.read_csv(config.TEST_FILE)
+    # test_meta = test_meta.drop_duplicates(config.ID_COLUMN, keep='last').reset_index(drop=True)
+    test_meta = test_meta[config.ID_COLUMN].values
+    if dev_mode:
+        test_meta = test_meta[:10]
+    test_set = LoadDataset(list(test_meta),is_test = True)
+    test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=6,drop_last=False)
+    test_loader.num = len(test_set)
+    test_loader.meta = test_meta
+    return test_loader
 
 if __name__ == '__main__':
     train_loader, val_loader = load_train_val_dataset(batch_size = 10, num_workers=6)
