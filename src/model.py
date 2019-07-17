@@ -222,7 +222,7 @@ def test():
     # out, _ = model(inputs)
     #print(model)
     # model = model.to("cpu")
-    print(summary(model, input_size=(3, 128, 128))) #, cls_taret.size())
+    print(summary(model, input_size=(3, 512, 512))) #, cls_taret.size())
     #print(out)
 
 

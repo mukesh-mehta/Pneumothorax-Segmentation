@@ -19,5 +19,5 @@ TEST_FILE = "../data/sample_submission.csv"
 ID_COLUMN = 'ImageId'
 ENCODING_COL = 'EncodedPixels'
 
-HEIGHT = 256
-WIDTH = 256
+HEIGHT = 128
+WIDTH = 128

@@ -13,16 +13,16 @@ import pdb
 import config
 from torchsummary import summary
 from loader import load_train_val_dataset# add_depth_channel
-# from unet_models import UNet11, UNetResNet
+from unet_models import UNet11, UNetResNet
 from model import UNetResNetV4#, UNetResNetV5, UNetResNetV6, UNet7, UNet8
-# from unet_se import UNetResNetSE
+from unet_se import UNetResNetSE
 # from lovasz_losses import lovasz_hinge, lovasz_softmax
-from losses import DiceLoss
+from losses import DiceLoss, FocalLoss2d
 # from postprocessing import crop_image, binarize, crop_image_softmax, resize_image
 # from metrics import dice_coeff
 
 MODEL_DIR = config.MODEL_DIR
-# focal_loss2d = FocalLoss2d()
+focal_loss2d = FocalLoss2d()
 
 class CyclicExponentialLR(_LRScheduler):
     def __init__(self, optimizer, gamma, init_lr, min_lr=5e-7, restart_max_lr=1e-5, last_epoch=-1):
@@ -39,10 +39,10 @@ class CyclicExponentialLR(_LRScheduler):
         self.last_lr = lr
         return [lr]*len(self.base_lrs)
 
-def criterion(logit, truth ):
+def criterion(logit, truth):
     # print(type(logit[0]), type(truth))
-    loss = DiceLoss()
-    return loss(logit, truth)
+    # loss = DiceLoss()
+    return focal_loss2d(logit, truth)
 
 def get_lrs(optimizer):
     lrs = []
@@ -56,8 +56,8 @@ def train(args):
     #load train and val data
     train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode)
 
-    model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
-    # model = eval(args.model_name)(num_filters=args.nf).cuda()
+    # model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
+    model = eval(args.model_name)(num_filters=args.nf).cuda()
     
     #filename to save models
     if args.exp_name is None:
@@ -131,17 +131,17 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=16, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--epochs', default=2, type=int, help='epoch')
+    parser.add_argument('--epochs', default=100, type=int, help='epoch')
     parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument('--lrs', default='cosine', choices=['cosine', 'plateau'], help='LR sceduler')
     parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
     parser.add_argument('--factor', default=0.5, type=float, help='lr scheduler factor')
     parser.add_argument('--t_max', default=15, type=int, help='lr scheduler patience')
     parser.add_argument('--pad_mode', default='edge', choices=['reflect', 'edge', 'resize'], help='pad method')
-    parser.add_argument('--exp_name', default='depths', type=str, help='exp name')
-    parser.add_argument('--model_name', default='UNetResNetV4', type=str, help='')
+    parser.add_argument('--exp_name', default='unet11_aug', type=str, help='exp name')
+    parser.add_argument('--model_name', default='UNet11', type=str, help='')
     parser.add_argument('--init_ckp', default=None, type=str, help='resume from checkpoint path')
     parser.add_argument('--val', action='store_true')
     parser.add_argument('--store_loss_model', action='store_true')
@@ -159,7 +159,7 @@ if __name__ == '__main__':
         format   = '%(asctime)s : %(message)s',
         datefmt  = '%Y-%m-%d %H:%M:%S', 
         level = log.INFO)
-
+    log.info(args)
     for i in ifolds:
         args.ifold = i
         train(args)

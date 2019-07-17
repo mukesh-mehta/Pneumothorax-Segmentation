@@ -10,6 +10,7 @@ import config
 from loader import get_test_loader
 from utils import create_submission
 from model import UNetResNetV4
+from unet_models import UNet11
 
 def predict(args, model, checkpoint, out_file):
     print('predicting {}...'.format(checkpoint))
@@ -35,7 +36,7 @@ def predict(args, model, checkpoint, out_file):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Salt segmentation')
-    parser.add_argument('--model_name', default='UNetResNetV4',type=str, help='')
+    parser.add_argument('--model_name', default='UNet11',type=str, help='')
     parser.add_argument('--layers', default=34, type=int, help='model layers')
     parser.add_argument('--nf', default=32, type=int, help='num_filters param for model')
     # parser.add_argument('--ifold', required=True, type=int, help='kfold indices')
@@ -47,8 +48,8 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    model = eval(args.model_name)(args.layers, num_filters=args.nf)
-    checkpoint = "../data/siim-png-images/models/depths/best_0.pth"
+    model = eval(args.model_name)(num_filters=args.nf)
+    checkpoint = "../data/siim-png-images/models/unet11/best_0.pth"
     out_file = args.sub_file
     #predict_model(args)
     #ensemble_predict(args)

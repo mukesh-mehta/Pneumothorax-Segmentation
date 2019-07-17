@@ -3,6 +3,7 @@ import pandas as pd
 import cv2
 import torch
 from sklearn.model_selection import train_test_split
+from postprocess import binarize
 import config
 
 def rle2mask(rle, height, width):
@@ -25,11 +26,11 @@ def load_image(path, mask = False):
     if mask:
         img = img[:, :, 0:1] // 255
         img = cv2.resize(img, (config.WIDTH, config.HEIGHT), interpolation = cv2.INTER_AREA) 
-        return torch.from_numpy(img).float()#.permute([2, 0, 1])
+        return img#torch.from_numpy(img).float()#.permute([2, 0, 1])
     else:
-        img = img / 255.0
+        img = img/255.0
         img = cv2.resize(img, (config.WIDTH, config.HEIGHT), interpolation = cv2.INTER_AREA) 
-        return torch.from_numpy(img).float().permute([2, 0, 1])
+        return img#torch.from_numpy(img).float().permute([2, 0, 1])
 
 def train_test_split_stratified(df, test_size = 0.1,random_state=42):
 	train, val = train_test_split(df, test_size = test_size,random_state=random_state)
@@ -46,7 +47,7 @@ def mask2rle(img, width=config.WIDTH, height=config.HEIGHT):
         for y in range(height):
             currentColor = img[x][y]
             if currentColor != lastColor:
-                if currentColor == 255:
+                if currentColor == 1:
                     runStart = currentPixel;
                     runLength = 1;
                 else:
@@ -61,6 +62,7 @@ def mask2rle(img, width=config.WIDTH, height=config.HEIGHT):
             currentPixel+=1;
 
     return " ".join(rle)
+
 def rle_encoding(x):
     dots = np.where(x.T.flatten() == 1)[0]
     run_lengths = []
@@ -70,11 +72,14 @@ def rle_encoding(x):
         run_lengths[-1] += 1
         prev = b
     return run_lengths
-def create_submission(meta, predictions):
+    
+def create_submission(meta, predictions, threshold=0.5):
     output = []
     for image_id, mask in zip(meta, predictions):
-        # print(mask,len(mask))
-        rle_encoded = ' '.join(str(rle) for rle in rle_encoding(mask))
+        if mask.shape[0] != 1024:
+            mask = cv2.resize(mask, (1024, 1024), interpolation = cv2.INTER_AREA)
+            mask = binarize(mask, threshold)
+        rle_encoded = ' '.join(str(rle) for rle in mask2rle(mask))
         output.append([image_id, rle_encoded])
 
     submission = pd.DataFrame(output, columns=[config.ID_COLUMN, config.ENCODING_COL]).astype(str)

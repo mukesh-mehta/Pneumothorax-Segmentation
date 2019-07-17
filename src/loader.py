@@ -10,6 +10,44 @@ import torch
 from torch.utils import data
 
 from utils import load_image, train_test_split_stratified
+from albumentations import (
+    Compose, HorizontalFlip, CLAHE, HueSaturationValue,
+    RandomBrightness, RandomContrast, RandomGamma,OneOf,
+    ToFloat, ShiftScaleRotate,GridDistortion, ElasticTransform, JpegCompression, HueSaturationValue,
+    RGBShift, RandomBrightness, RandomContrast, Blur, MotionBlur, MedianBlur, GaussNoise,CenterCrop,
+    IAAAdditiveGaussianNoise,GaussNoise,OpticalDistortion,RandomSizedCrop
+)
+
+
+
+def augment(image, mask=None, test=False):
+    AUGMENTATIONS_TRAIN = Compose([
+                                HorizontalFlip(p=0.5),
+                                OneOf([
+                                    RandomContrast(),
+                                    RandomGamma(),
+                                    RandomBrightness(),
+                                     ], p=0.3),
+                                OneOf([
+                                    ElasticTransform(alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03),
+                                    GridDistortion(),
+                                    OpticalDistortion(distort_limit=2, shift_limit=0.5),
+                                    ], p=0.3),
+                                # RandomSizedCrop(min_max_height=(128, 256), height=h, width=w,p=0.5),
+                                ToFloat(max_value=1)
+                            ],p=1)
+
+    AUGMENTATIONS_TEST = Compose([
+                            ToFloat(max_value=1)
+                        ],p=1)
+    if test:
+        augmented = AUGMENTATIONS_TEST(image=image)
+        return torch.from_numpy(augmented['image']).float().permute([2, 0, 1])
+    else:
+        augmented = AUGMENTATIONS_TRAIN(image=image, mask=mask)
+        img = torch.from_numpy(augmented['image']).float().permute([2, 0, 1])
+        mask = torch.from_numpy(augmented['mask']).float()
+        return img, mask
 
 class LoadDataset(data.Dataset):
     def __init__(self, file_list, is_test = False):
@@ -28,14 +66,14 @@ class LoadDataset(data.Dataset):
         if self.is_test:
             image_path = os.path.join(config.TEST_IMG_DIR, file_id + ".png")
             image = load_image(image_path)
-            return (image,)
+            return augment(image, test=True)
         else:
             image_path = os.path.join(config.TRAIN_IMG_DIR, file_id + ".png")
             mask_path = os.path.join(config.TRAIN_MASK_DIR, file_id + ".png")
 
             image = load_image(image_path)
             mask = load_image(mask_path, mask = True)
-            return image, mask
+            return augment(image, mask=mask)
 
 def load_train_val_dataset(batch_size= 16, num_workers=6, dev_mode=False):
     dataframe = pd.read_csv(config.ENCODING_FILE)
@@ -75,4 +113,8 @@ if __name__ == '__main__':
         print("check val")
         print(image.shape, mask.shape)
         break
+    test_loader = get_test_loader(batch_size=16, index=0, dev_mode=True)
+    for image in test_loader:
+        print("check train")
+        print(image.shape)
     print("checked...")
