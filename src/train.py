@@ -131,12 +131,15 @@ def train(args):
 def get_threshold_iou(model, checkpoint):
     model.load_state_dict(torch.load(checkpoint))
     model = model.cuda()
-
-    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode)
+    model.eval()
+    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=8, dev_mode = args.dev_mode)
+    print(val_loader.num)
     val_truth=[]
     val_pred=[]
     for batch_idx, data in enumerate(val_loader):
+        # print('\r {}'.format(batch_idx),end=' ')
         image, mask = data
+        print('\r {} {}'.format(batch_idx, image.shape),end=' ')
         image = image.cuda()
         val_pred.extend(torch.sigmoid(model(Variable(image))).cpu().data.numpy())
         val_truth.extend(mask.cpu().data.numpy())
@@ -158,7 +161,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=2, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     parser.add_argument('--epochs', default=2, type=int, help='epoch')
     parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
@@ -179,17 +182,17 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.dev_mode=False
     print(args)
-    model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
-    model_file = "../data/siim-png-images/models/UNetResNetV4_aug_256/best_0.pth"
-    get_threshold_iou(model, model_file)
-    # ifolds = [int(x) for x in args.ifolds.split(',')]
-    # print(ifolds)
-    # log.basicConfig(
-    #     filename = 'trainlog_{}.txt'.format(''.join([str(x) for x in ifolds])), 
-    #     format   = '%(asctime)s : %(message)s',
-    #     datefmt  = '%Y-%m-%d %H:%M:%S', 
-    #     level = log.INFO)
-    # log.info(args)
-    # for i in ifolds:
-    #     args.ifold = i
-    #     train(args)
+    # model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
+    # model_file = "../data/siim-png-images/models/UNetResNetV4_aug_256/best_0.pth"
+    # get_threshold_iou(model, model_file)
+    ifolds = [int(x) for x in args.ifolds.split(',')]
+    print(ifolds)
+    log.basicConfig(
+        filename = 'trainlog_{}.txt'.format(''.join([str(x) for x in ifolds])), 
+        format   = '%(asctime)s : %(message)s',
+        datefmt  = '%Y-%m-%d %H:%M:%S', 
+        level = log.INFO)
+    log.info(args)
+    for i in ifolds:
+        args.ifold = i
+        train(args)

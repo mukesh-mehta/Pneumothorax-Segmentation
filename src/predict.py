@@ -36,11 +36,11 @@ def predict(args, model, checkpoint, out_file):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Salt segmentation')
-    parser.add_argument('--model_name', default='UNet11',type=str, help='')
+    parser.add_argument('--model_name', default='UNetResNetV4',type=str, help='')
     parser.add_argument('--layers', default=34, type=int, help='model layers')
     parser.add_argument('--nf', default=32, type=int, help='num_filters param for model')
     # parser.add_argument('--ifold', required=True, type=int, help='kfold indices')
-    parser.add_argument('--batch_size', default=12, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=5, type=int, help='batch_size')
     # parser.add_argument('--pad_mode', required=True, choices=['reflect', 'edge', 'resize'], help='pad method')
     # parser.add_argument('--exp_name', default='depths', type=str, help='exp name')
     # parser.add_argument('--meta_version', default=1, type=int, help='meta version')
@@ -48,8 +48,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    model = eval(args.model_name)(num_filters=args.nf)
-    checkpoint = "../data/siim-png-images/models/unet11_aug/best_0.pth"
+    # model = eval(args.model_name)(num_filters=args.nf)
+    model = eval(args.model_name)(args.layers, num_filters=args.nf)
+    checkpoint = "../data/siim-png-images/models/UNetResNetV4_aug_256/best_0.pth"
     out_file = args.sub_file
     #predict_model(args)
     #ensemble_predict(args)

@@ -86,8 +86,8 @@ def load_train_val_dataset(batch_size= 16, num_workers=6, dev_mode=False):
     train_set = LoadDataset(list(train[config.ID_COLUMN].values))
     val_set = LoadDataset(list(val[config.ID_COLUMN].values))
 
-    train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers)
-    val_loader = data.DataLoader(val_set, batch_size=int(batch_size/2), shuffle=False, num_workers=num_workers)
+    train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers,drop_last=False)
+    val_loader = data.DataLoader(val_set, batch_size=int(batch_size/2), shuffle=False, num_workers=num_workers,drop_last=False)
     train_loader.num = len(train_set)
     val_loader.num = len(val_set)
     return train_loader, val_loader
