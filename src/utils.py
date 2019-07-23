@@ -4,6 +4,7 @@ import cv2
 import torch
 from sklearn.model_selection import train_test_split
 from postprocess import binarize
+from tqdm import tqdm
 import config
 
 def rle2mask(rle, height, width):
@@ -25,16 +26,19 @@ def load_image(path, mask = False):
     img = cv2.imread(str(path))
     if mask:
         img = img[:, :, 0:1] // 255
-        img = cv2.resize(img, (config.WIDTH, config.HEIGHT), interpolation = cv2.INTER_AREA) 
+        # img = cv2.resize(img, (config.WIDTH, config.HEIGHT), interpolation = cv2.INTER_AREA) 
         return img#torch.from_numpy(img).float()#.permute([2, 0, 1])
     else:
         img = img/255.0
-        img = cv2.resize(img, (config.WIDTH, config.HEIGHT), interpolation = cv2.INTER_AREA) 
+        # img = cv2.resize(img, (config.WIDTH, config.HEIGHT), interpolation = cv2.INTER_AREA) 
         return img#torch.from_numpy(img).float().permute([2, 0, 1])
 
-def train_test_split_stratified(df, test_size = 0.1,random_state=42):
-	train, val = train_test_split(df, test_size = test_size,random_state=random_state)
-	return train, val
+def train_test_split_stratified(df, test_size = 0.2,random_state=42):
+    df.drop_duplicates(subset=[config.ID_COLUMN], inplace=True)
+    df.loc[df[config.ENCODING_COL]!=-1, "startify"] = 0
+    train, val = train_test_split(df, test_size = test_size,random_state=random_state, stratify=df["startify"])
+    print("Train: {}, Val: {}".format(train.shape, val.shape))
+    return train, val
 
 def mask2rle(img, width=config.WIDTH, height=config.HEIGHT):
     rle = []
@@ -73,12 +77,12 @@ def rle_encoding(x):
         prev = b
     return run_lengths
     
-def create_submission(meta, predictions, threshold=0.5):
+def create_submission(meta, predictions, threshold=0.2):
     output = []
-    for image_id, mask in zip(meta, predictions):
-        if mask.shape[0] != 1024:
-            mask = cv2.resize(mask, (1024, 1024), interpolation = cv2.INTER_AREA)
-            mask = binarize(mask, threshold)
+    for image_id, mask in tqdm(zip(meta, predictions)):
+        # if mask.shape[0] != 1024:
+        #     mask = cv2.resize(mask, (1024, 1024), interpolation = cv2.INTER_AREA)
+        mask = binarize(mask, threshold)
         rle_encoded = ' '.join(str(rle) for rle in mask2rle(mask))
         output.append([image_id, rle_encoded])
 

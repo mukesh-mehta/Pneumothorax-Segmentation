@@ -24,7 +24,7 @@ from losses import DiceLoss, FocalLoss2d
 # from postprocessing import crop_image, binarize, crop_image_softmax, resize_image
 # from metrics import dice_coeff
 
-MODEL_DIR = config.MODEL_DIR
+MODEL_DIR = config.CLF_MODEL_DIR
 focal_loss2d = FocalLoss2d()
 
 class CyclicExponentialLR(_LRScheduler):
@@ -179,17 +179,14 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.dev_mode=False
     print(args)
-    model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
-    model_file = "../data/siim-png-images/models/UNetResNetV4_aug_256/best_0.pth"
-    get_threshold_iou(model, model_file)
-    # ifolds = [int(x) for x in args.ifolds.split(',')]
-    # print(ifolds)
-    # log.basicConfig(
-    #     filename = 'trainlog_{}.txt'.format(''.join([str(x) for x in ifolds])), 
-    #     format   = '%(asctime)s : %(message)s',
-    #     datefmt  = '%Y-%m-%d %H:%M:%S', 
-    #     level = log.INFO)
-    # log.info(args)
-    # for i in ifolds:
-    #     args.ifold = i
-    #     train(args)
+    ifolds = [int(x) for x in args.ifolds.split(',')]
+    print(ifolds)
+    log.basicConfig(
+        filename = 'trainlog_{}.txt'.format(''.join([str(x) for x in ifolds])), 
+        format   = '%(asctime)s : %(message)s',
+        datefmt  = '%Y-%m-%d %H:%M:%S', 
+        level = log.INFO)
+    log.info(args)
+    for i in ifolds:
+        args.ifold = i
+        train(args)

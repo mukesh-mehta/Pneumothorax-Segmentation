@@ -188,7 +188,8 @@ class UNetResNetV4(nn.Module):
 
         f = F.dropout2d(f, p=self.dropout_2d)
 
-        return self.sig(self.logit(f))
+        return self.logit(f)
+        # return self.sig(self.logit(f))
     
     def freeze_bn(self):
         '''Freeze BatchNorm layers.'''

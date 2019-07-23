@@ -23,9 +23,9 @@ def predict(args, model, checkpoint, out_file):
     outputs = []
     with torch.no_grad():
         for i, img in enumerate(test_loader):
-            img = img[0].type(torch.FloatTensor).cuda()
-            output= model(img).cpu().data.numpy()
-            # output = torch.sigmoid(output)
+            img = img.type(torch.FloatTensor).cuda()
+            output= model(img)
+            output = torch.sigmoid(output).cpu().data.numpy()
             outputs.append(output)
 
             print('{} / {}'.format(args.batch_size*(i+1), test_loader.num), end='\r')
@@ -40,7 +40,7 @@ if __name__ == '__main__':
     parser.add_argument('--layers', default=34, type=int, help='model layers')
     parser.add_argument('--nf', default=32, type=int, help='num_filters param for model')
     # parser.add_argument('--ifold', required=True, type=int, help='kfold indices')
-    parser.add_argument('--batch_size', default=1, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=12, type=int, help='batch_size')
     # parser.add_argument('--pad_mode', required=True, choices=['reflect', 'edge', 'resize'], help='pad method')
     # parser.add_argument('--exp_name', default='depths', type=str, help='exp name')
     # parser.add_argument('--meta_version', default=1, type=int, help='meta version')
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     model = eval(args.model_name)(num_filters=args.nf)
-    checkpoint = "../data/siim-png-images/models/unet11/best_0.pth"
+    checkpoint = "../data/siim-png-images/models/unet11_aug/best_0.pth"
     out_file = args.sub_file
     #predict_model(args)
     #ensemble_predict(args)

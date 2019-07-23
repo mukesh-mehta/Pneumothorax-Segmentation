@@ -42,7 +42,8 @@ def augment(image, mask=None, test=False):
                         ],p=1)
     if test:
         augmented = AUGMENTATIONS_TEST(image=image)
-        return torch.from_numpy(augmented['image']).float().permute([2, 0, 1])
+        img = torch.from_numpy(image).float().permute([2, 0, 1])
+        return img
     else:
         augmented = AUGMENTATIONS_TRAIN(image=image, mask=mask)
         img = torch.from_numpy(augmented['image']).float().permute([2, 0, 1])
@@ -77,6 +78,7 @@ class LoadDataset(data.Dataset):
 
 def load_train_val_dataset(batch_size= 16, num_workers=6, dev_mode=False):
     dataframe = pd.read_csv(config.ENCODING_FILE)
+    dataframe.drop_duplicates(subset=[config.ID_COLUMN], inplace=True)
     if dev_mode:
         dataframe = dataframe.iloc[:100]
     train, val = train_test_split_stratified(dataframe)
@@ -96,7 +98,7 @@ def get_test_loader(batch_size=16, index=0, dev_mode=False):
     # test_meta = test_meta.drop_duplicates(config.ID_COLUMN, keep='last').reset_index(drop=True)
     test_meta = test_meta[config.ID_COLUMN].values
     if dev_mode:
-        test_meta = test_meta[:10]
+        test_meta = test_meta[:25]
     test_set = LoadDataset(list(test_meta),is_test = True)
     test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=6,drop_last=False)
     test_loader.num = len(test_set)
@@ -115,6 +117,6 @@ if __name__ == '__main__':
         break
     test_loader = get_test_loader(batch_size=16, index=0, dev_mode=True)
     for image in test_loader:
-        print("check train")
+        print("check test")
         print(image.shape)
     print("checked...")
