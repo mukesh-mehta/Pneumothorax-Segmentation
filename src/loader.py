@@ -9,7 +9,7 @@ import pandas as pd
 import torch
 from torch.utils import data
 
-from utils import load_image, train_test_split_stratified
+from utils import load_image, train_test_split_stratified, create_file_list
 from albumentations import (
     Compose, HorizontalFlip, CLAHE, HueSaturationValue,
     RandomBrightness, RandomContrast, RandomGamma,OneOf,
@@ -20,7 +20,7 @@ from albumentations import (
 
 
 
-def augment(image, mask=None, test=False):
+def augment(image, mask=None, test=False, is_clf=False):
     AUGMENTATIONS_TRAIN = Compose([
                                 HorizontalFlip(p=0.5),
                                 OneOf([
@@ -50,7 +50,36 @@ def augment(image, mask=None, test=False):
         mask = torch.from_numpy(augmented['mask']).float()
         return img, mask
 
-class LoadDataset(data.Dataset):
+def augment_clf(image, label=None, test=False, is_clf=False):
+    AUGMENTATIONS_TRAIN = Compose([
+                                HorizontalFlip(p=0.5),
+                                OneOf([
+                                    RandomContrast(),
+                                    RandomGamma(),
+                                    RandomBrightness(),
+                                     ], p=0.3),
+                                OneOf([
+                                    ElasticTransform(alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03),
+                                    GridDistortion(),
+                                    OpticalDistortion(distort_limit=2, shift_limit=0.5),
+                                    ], p=0.3),
+                                # RandomSizedCrop(min_max_height=(128, 256), height=h, width=w,p=0.5),
+                                ToFloat(max_value=1)
+                            ],p=1)
+
+    AUGMENTATIONS_TEST = Compose([
+                            ToFloat(max_value=1)
+                        ],p=1)
+    if test:
+        augmented = AUGMENTATIONS_TEST(image=image)
+        img = torch.from_numpy(image).float().permute([2, 0, 1])
+        return img
+    else:
+        augmented = AUGMENTATIONS_TRAIN(image=image)
+        img = torch.from_numpy(augmented['image']).float().permute([2, 0, 1])
+        return img, label
+
+class LoadDatasetCLF(data.Dataset):
     def __init__(self, file_list, is_test = False):
         self.is_test = is_test
         self.file_list = file_list
@@ -65,6 +94,29 @@ class LoadDataset(data.Dataset):
         file_id = self.file_list[index]
         
         if self.is_test:
+            image_path = os.path.join(config.TEST_IMG_DIR_RAW, file_id[0] + ".png")
+            image = load_image(image_path)
+            return augment_clf(image, test=True)
+        else:
+            image_path = os.path.join(config.TRAIN_IMG_DIR_RAW, file_id[0] + ".png")
+            image = load_image(image_path)
+            return augment_clf(image, label = file_id[1])
+
+
+class LoadDataset(data.Dataset):
+    def __init__(self, file_list, is_test = False):
+        self.is_test = is_test
+        self.file_list = file_list
+    
+    def __len__(self):
+        return len(self.file_list)
+    
+    def __getitem__(self, index):
+        if index not in range(0, len(self.file_list)):
+            return self.__getitem__(np.random.randint(0, self.__len__()))
+        
+        file_id = self.file_list[index]
+        if self.is_test:
             image_path = os.path.join(config.TEST_IMG_DIR, file_id + ".png")
             image = load_image(image_path)
             return augment(image, test=True)
@@ -76,21 +128,38 @@ class LoadDataset(data.Dataset):
             mask = load_image(mask_path, mask = True)
             return augment(image, mask=mask)
 
-def load_train_val_dataset(batch_size= 16, num_workers=6, dev_mode=False):
+def load_train_val_dataset(batch_size= 16, num_workers=8, dev_mode=False, is_clf=False):
     dataframe = pd.read_csv(config.ENCODING_FILE)
     dataframe.drop_duplicates(subset=[config.ID_COLUMN], inplace=True)
-    if dev_mode:
-        dataframe = dataframe.iloc[:100]
-    train, val = train_test_split_stratified(dataframe)
+    dataframe.loc[dataframe[config.ENCODING_COL]!='-1', "has_pneumo"] = 1
+    dataframe.loc[dataframe[config.ENCODING_COL]=='-1', "has_pneumo"] = 0
+    if is_clf:
+        dataframe = dataframe[[config.ID_COLUMN, "has_pneumo"]]
+        if dev_mode:
+            dataframe = dataframe.iloc[:100]
+        train, val = train_test_split_stratified(dataframe)
 
-    train_set = LoadDataset(list(train[config.ID_COLUMN].values))
-    val_set = LoadDataset(list(val[config.ID_COLUMN].values))
+        train_set = LoadDatasetCLF(create_file_list(train))
+        val_set = LoadDatasetCLF(create_file_list(val))
 
-    train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers,drop_last=False)
-    val_loader = data.DataLoader(val_set, batch_size=int(batch_size/2), shuffle=False, num_workers=num_workers,drop_last=False)
-    train_loader.num = len(train_set)
-    val_loader.num = len(val_set)
-    return train_loader, val_loader
+        train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers,drop_last=False)
+        val_loader = data.DataLoader(val_set, batch_size=int(batch_size/2), shuffle=False, num_workers=num_workers,drop_last=False)
+        train_loader.num = len(train_set)
+        val_loader.num = len(val_set)
+        return train_loader, val_loader
+    else:
+        if dev_mode:
+            dataframe = dataframe.iloc[:100]
+        train, val = train_test_split_stratified(dataframe)
+
+        train_set = LoadDataset(list(train[config.ID_COLUMN].values))
+        val_set = LoadDataset(list(val[config.ID_COLUMN].values))
+
+        train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers,drop_last=False)
+        val_loader = data.DataLoader(val_set, batch_size=int(batch_size/2), shuffle=False, num_workers=num_workers,drop_last=False)
+        train_loader.num = len(train_set)
+        val_loader.num = len(val_set)
+        return train_loader, val_loader
 
 
 def get_test_loader(batch_size=16, index=0, dev_mode=False):

@@ -1,7 +1,14 @@
 import numpy as np
+import torch.nn as nn
+from sklearn.metrics import accuracy_score
+
 def dice_coeff(output, target, smooth=0, eps=1e-7):
     return (2 * sum(output * target) + smooth) / (
             sum(output) + sum(target) + smooth + eps)
+
+def accuracy(logit, target):
+	label = np.int32(nn.Sigmoid()(logit).detach())
+	return accuracy_score(target, label)
 
 def iou_metric(y_true_in, y_pred_in, print_table=False):
     labels = y_true_in

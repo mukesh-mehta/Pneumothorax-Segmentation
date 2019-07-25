@@ -14,18 +14,13 @@ from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, _LRSchedu
 import pdb
 import config
 from torchsummary import summary
-from loader import load_train_val_dataset# add_depth_channel
-from unet_models import UNet11, UNetResNet
-from model import UNetResNetV4#, UNetResNetV5, UNetResNetV6, UNet7, UNet8
-from unet_se import UNetResNetSE
-# from lovasz_losses import lovasz_hinge, lovasz_softmax
-from metrics import iou_metric_batch
-from losses import DiceLoss, FocalLoss2d
-# from postprocessing import crop_image, binarize, crop_image_softmax, resize_image
-# from metrics import dice_coeff
+from loader import load_train_val_dataset
+from metrics import accuracy
+# from losses import DiceLoss, FocalLoss2d
+from cnn_finetune import make_model
 
 MODEL_DIR = config.CLF_MODEL_DIR
-focal_loss2d = FocalLoss2d()
+# focal_loss2d = FocalLoss2d()
 
 class CyclicExponentialLR(_LRScheduler):
     def __init__(self, optimizer, gamma, init_lr, min_lr=5e-7, restart_max_lr=1e-5, last_epoch=-1):
@@ -44,8 +39,8 @@ class CyclicExponentialLR(_LRScheduler):
 
 def criterion(logit, truth):
     # print(type(logit[0]), type(truth))
-    # loss = DiceLoss()
-    return focal_loss2d(logit, truth)
+    loss =  nn.BCELoss()
+    return loss(nn.Sigmoid()(logit), truth)
 
 def get_lrs(optimizer):
     lrs = []
@@ -57,11 +52,11 @@ def get_lrs(optimizer):
 def train(args):
     print("start training....")
     #load train and val data
-    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode)
+    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode, is_clf=True)
 
-    model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
-    # model = eval(args.model_name)(num_filters=args.nf).cuda()
-    
+    model = make_model(args.model_name, num_classes=1, pretrained=True, input_size=(1024, 1024)).cuda()
+
+    # print(summary(model, (3, 1024, 1024)))
     #filename to save models
     if args.exp_name is None:
         model_file = os.path.join(MODEL_DIR, 'best_{}.pth'.format(args.ifold))
@@ -78,36 +73,42 @@ def train(args):
         optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
     best_loss = 10
     model.train()
-
+    print("epoch | lr | Progress | batch_loss | loss | batch_acc | acc | val_loss | val_acc | best_loss | time | is_best|")
     for epoch in range(args.epochs):
         current_lr = get_lrs(optimizer)
         train_loss = 0
+        total_acc = 0
         bg = time.time()
         for batch_idx, data in enumerate(train_loader):
-            image, mask = data
+
+            optimizer.zero_grad()
+            image, label = data
             image = image.type(torch.FloatTensor).cuda()
             y_pred = model(Variable(image))
 
-            loss = criterion(y_pred, Variable(mask.cuda()))
-            dice  = 1-loss.item()
-            
-            optimizer.zero_grad()
-            loss.backward()
+            loss = criterion(y_pred, Variable(label.float().view(-1,1).cuda()))
 
+            loss.backward()
             optimizer.step()
+
             train_loss += loss.item()
-            print('\r {:4d} | {:.5f} | {:4d}/{} | {:.4f} | {:.4f} |'.format(
-                epoch, float(current_lr[0]), args.batch_size*(batch_idx+1), train_loader.num, loss.item(), train_loss/(batch_idx+1)), end='')
+            acc = accuracy(y_pred.cpu(),label)
+            total_acc += acc
+            tot_loss = train_loss/(batch_idx+1)
+            print('\r {:4d} | {:.5f} | {:4d}/{} | {:.4f} | {:.4f} | {:.4f} | {:.4f} |'.format(
+                epoch, float(current_lr[0]), args.batch_size*(batch_idx+1), train_loader.num, loss.item(), tot_loss, acc, total_acc/(batch_idx+1)), end='')
         
         del loss
+        val_acc=0
         val_loss = 0
         for batch_idx, data in enumerate(val_loader):
-            image, mask = data
+            image, label = data
             image = image.cuda()
             y_pred = model(Variable(image))
 
-            loss = criterion(y_pred, Variable(mask.cuda()))
+            loss = criterion(y_pred, Variable(label.float().view(-1,1).cuda()))
             val_loss+= loss.item()
+            val_acc += accuracy(y_pred.cpu(),label)
 
         _save_ckp = ''
         loss = val_loss/(batch_idx+1)
@@ -117,16 +118,17 @@ def train(args):
             _save_ckp = '*'
         
 
-        print(' {} | {} | {} | {} |'.format(
-            val_loss/(batch_idx+1), best_loss, (time.time() - bg) / 60, _save_ckp))
+        print(' {} | {} | {} | {} | {} |'.format(
+            val_loss/(batch_idx+1), val_acc/(batch_idx+1),best_loss, (time.time() - bg) / 60, _save_ckp))
         
-        log.info('epoch {}: train loss: {:.4f} best loss: {:.4f} lr: {} {}'
-            .format(epoch, train_loss, best_loss, current_lr, _save_ckp))
-        del image, mask, data, loss, train_loss
+        log.info('epoch {}: train loss: {:.4f} val acc: {:.4f} best loss: {:.4f} lr: {} {}'
+            .format(epoch, tot_loss, val_acc/(batch_idx+1), best_loss, current_lr, _save_ckp))
+        del image, label, data, loss, train_loss, total_acc, val_acc, val_loss, tot_loss
         torch.cuda.empty_cache()
+        time.sleep(10)
     print(model_file)
-    print("best iou")
-    get_threshold_iou(model, model_file)
+    # print("best iou")
+    # get_threshold_iou(model, model_file)
 
 def get_threshold_iou(model, checkpoint):
     model.load_state_dict(torch.load(checkpoint))
@@ -158,17 +160,17 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=2, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--epochs', default=2, type=int, help='epoch')
+    parser.add_argument('--epochs', default=4, type=int, help='epoch')
     parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument('--lrs', default='cosine', choices=['cosine', 'plateau'], help='LR sceduler')
     parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
     parser.add_argument('--factor', default=0.5, type=float, help='lr scheduler factor')
     parser.add_argument('--t_max', default=15, type=int, help='lr scheduler patience')
     parser.add_argument('--pad_mode', default='edge', choices=['reflect', 'edge', 'resize'], help='pad method')
-    parser.add_argument('--exp_name', default='UNetResNetV4_aug_256', type=str, help='exp name')
-    parser.add_argument('--model_name', default='UNetResNetV4', type=str, help='')
+    parser.add_argument('--exp_name', default='resnet34', type=str, help='exp name')
+    parser.add_argument('--model_name', default='resnet34', type=str, help='')
     parser.add_argument('--init_ckp', default=None, type=str, help='resume from checkpoint path')
     parser.add_argument('--val', action='store_true')
     parser.add_argument('--store_loss_model', action='store_true')

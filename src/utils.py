@@ -7,6 +7,9 @@ from postprocess import binarize
 from tqdm import tqdm
 import config
 
+def create_file_list(dataframe):
+    return [tuple(x) for x in dataframe.values]
+
 def rle2mask(rle, height, width):
 	mask= np.zeros(width* height)
 	array = np.asarray([int(x) for x in rle.split()])
@@ -35,8 +38,7 @@ def load_image(path, mask = False):
 
 def train_test_split_stratified(df, test_size = 0.2,random_state=42):
     df.drop_duplicates(subset=[config.ID_COLUMN], inplace=True)
-    df.loc[df[config.ENCODING_COL]!=-1, "startify"] = 0
-    train, val = train_test_split(df, test_size = test_size,random_state=random_state, stratify=df["startify"])
+    train, val = train_test_split(df, test_size = test_size,random_state=random_state, stratify=df["has_pneumo"])
     print("Train: {}, Val: {}".format(train.shape, val.shape))
     return train, val
 
@@ -77,7 +79,7 @@ def rle_encoding(x):
         prev = b
     return run_lengths
     
-def create_submission(meta, predictions, threshold=0.223):
+def create_submission(meta, predictions, threshold=0.27):
     output = []
     for image_id, mask in tqdm(zip(meta, predictions)):
         # if mask.shape[0] != 1024:

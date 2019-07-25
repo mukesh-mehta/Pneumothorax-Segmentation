@@ -21,6 +21,7 @@ from unet_se import UNetResNetSE
 # from lovasz_losses import lovasz_hinge, lovasz_softmax
 from metrics import iou_metric_batch
 from losses import DiceLoss, FocalLoss2d
+import segmentation_models_pytorch as smp
 # from postprocessing import crop_image, binarize, crop_image_softmax, resize_image
 # from metrics import dice_coeff
 
@@ -43,9 +44,10 @@ class CyclicExponentialLR(_LRScheduler):
         return [lr]*len(self.base_lrs)
 
 def criterion(logit, truth):
-    # print(type(logit[0]), type(truth))
+    logit  = logit.reshape(truth.shape)
     # loss = DiceLoss()
-    return focal_loss2d(logit, truth)
+    loss = smp.utils.losses.BCEDiceLoss(eps=1.)
+    return loss(logit, truth)
 
 def get_lrs(optimizer):
     lrs = []
@@ -132,14 +134,13 @@ def get_threshold_iou(model, checkpoint):
     model.load_state_dict(torch.load(checkpoint))
     model = model.cuda()
     model.eval()
-    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=8, dev_mode = args.dev_mode)
+    train_loader, val_loader = load_train_val_dataset(batch_size = 10, num_workers=1, dev_mode = args.dev_mode)
     print(val_loader.num)
     val_truth=[]
     val_pred=[]
-    for batch_idx, data in enumerate(val_loader):
+    for data in tqdm(val_loader):
         # print('\r {}'.format(batch_idx),end=' ')
         image, mask = data
-        print('\r {} {}'.format(batch_idx, image.shape),end=' ')
         image = image.cuda()
         val_pred.extend(torch.sigmoid(model(Variable(image))).cpu().data.numpy())
         val_truth.extend(mask.cpu().data.numpy())
@@ -161,9 +162,9 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=2, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--epochs', default=2, type=int, help='epoch')
+    parser.add_argument('--epochs', default=40, type=int, help='epoch')
     parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument('--lrs', default='cosine', choices=['cosine', 'plateau'], help='LR sceduler')
     parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
