@@ -15,8 +15,12 @@ import pdb
 import config
 from torchsummary import summary
 from loader import load_train_val_dataset
+<<<<<<< HEAD
 from metrics import accuracy
 # from losses import DiceLoss, FocalLoss2d
+=======
+from losses import DiceLoss, FocalLoss2d
+>>>>>>> adfee714143f28253248c316d5c0d1a583898693
 from cnn_finetune import make_model
 
 MODEL_DIR = config.CLF_MODEL_DIR
@@ -54,11 +58,16 @@ def train(args):
     #load train and val data
     train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode, is_clf=True)
 
+<<<<<<< HEAD
     model = make_model(args.model_name, num_classes=1, pretrained=True, input_size=(1024, 1024)).cuda()
 
     # print(summary(model, (3, 1024, 1024)))
+=======
+    model = make_model(args.model_name, num_classes=args.num_classer, pretrained=True, input_size=(config.HEIGHT, config.WIDTH))
+    
+>>>>>>> adfee714143f28253248c316d5c0d1a583898693
     #filename to save models
-    if args.exp_name is None:
+    if args.exp_name is None:args.model_name
         model_file = os.path.join(MODEL_DIR, 'best_{}.pth'.format(args.ifold))
     else:
         model_file = os.path.join(MODEL_DIR, args.exp_name, 'best_{}.pth'.format(args.ifold))
@@ -80,6 +89,7 @@ def train(args):
         total_acc = 0
         bg = time.time()
         for batch_idx, data in enumerate(train_loader):
+<<<<<<< HEAD
 
             optimizer.zero_grad()
             image, label = data
@@ -87,6 +97,19 @@ def train(args):
             y_pred = model(Variable(image))
 
             loss = criterion(y_pred, Variable(label.float().view(-1,1).cuda()))
+=======
+            image, mask = data
+            label = np.int32((mask.data.numpy()>0).any())
+            del mask
+            image = image.type(torch.FloatTensor).cuda()
+            y_pred = model(Variable(image))
+
+            loss = criterion(y_pred, Variable(label.cuda()))
+            dice  = 1-loss.item()
+            
+            optimizer.zero_grad()
+            loss.backward()
+>>>>>>> adfee714143f28253248c316d5c0d1a583898693
 
             loss.backward()
             optimizer.step()
@@ -102,11 +125,21 @@ def train(args):
         val_acc=0
         val_loss = 0
         for batch_idx, data in enumerate(val_loader):
+<<<<<<< HEAD
             image, label = data
             image = image.cuda()
             y_pred = model(Variable(image))
 
             loss = criterion(y_pred, Variable(label.float().view(-1,1).cuda()))
+=======
+            image, mask = data
+            label = np.int32((mask.data.numpy()>0).any())
+            del mask
+            image = image.cuda()
+            y_pred = model(Variable(image))
+
+            loss = criterion(y_pred, Variable(label.cuda()))
+>>>>>>> adfee714143f28253248c316d5c0d1a583898693
             val_loss+= loss.item()
             val_acc += accuracy(y_pred.cpu(),label)
 
