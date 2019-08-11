@@ -44,10 +44,10 @@ class CyclicExponentialLR(_LRScheduler):
         return [lr]*len(self.base_lrs)
 
 def criterion(logit, truth):
-    # logit  = logit.view(truth.shape)
-    # # loss = DiceLoss()
-    # loss = smp.utils.losses.BCEDiceLoss(eps=1.)
-    return focal_loss2d(logit, truth)
+    logit  = logit.view(truth.shape)
+    # loss = DiceLoss()
+    loss = smp.utils.losses.BCEDiceLoss(eps=1e-5)
+    return loss(logit, truth)
 
 def get_lrs(optimizer):
     lrs = []
@@ -95,7 +95,7 @@ def train(args):
             y_pred = model(Variable(image))
 
             loss = criterion(y_pred, Variable(mask.cuda()))
-            iou = smp.utils.metrics.IoUMetric(threshold=0.6)(y_pred, Variable(mask.cuda()))
+            iou = smp.utils.metrics.IoUMetric(threshold=0.7)(y_pred, Variable(mask.cuda()))
             
             optimizer.zero_grad()
             loss.backward()
@@ -118,7 +118,7 @@ def train(args):
                 loss = criterion(y_pred, Variable(mask.cuda()))
                 val_loss+= loss.item()
 
-                iou = smp.utils.metrics.IoUMetric(threshold=0.6)(y_pred, Variable(mask.cuda()))
+                iou = smp.utils.metrics.IoUMetric(threshold=0.7)(y_pred, Variable(mask.cuda()))
                 val_iou += iou.item()
 
             _save_ckp = ''
@@ -172,17 +172,17 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=1, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=2, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--epochs', default=20, type=int, help='epoch')
-    parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
+    parser.add_argument('--epochs', default=10, type=int, help='epoch')
+    parser.add_argument('--optim', default='Adam', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument('--lrs', default='cosine', choices=['cosine', 'plateau'], help='LR sceduler')
     parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
     parser.add_argument('--factor', default=0.5, type=float, help='lr scheduler factor')
     parser.add_argument('--t_max', default=15, type=int, help='lr scheduler patience')
     parser.add_argument('--pad_mode', default='edge', choices=['reflect', 'edge', 'resize'], help='pad method')
     parser.add_argument('--exp_name', default='resnet34_aug_256', type=str, help='exp name')
-    parser.add_argument('--model_name', default='vgg11', type=str, help='')
+    parser.add_argument('--model_name', default='resnet34', type=str, help='')
     parser.add_argument('--init_ckp', default=None, type=str, help='resume from checkpoint path')
     parser.add_argument('--val', action='store_true')
     parser.add_argument('--store_loss_model', action='store_true')

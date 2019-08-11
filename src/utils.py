@@ -78,7 +78,7 @@ def rle_encoding(x):
         prev = b
     return run_lengths
     
-def create_submission(meta, predictions, threshold=0.779):
+def create_submission(meta, predictions, threshold=0.58):
     output = []
     for image_id, mask in tqdm(zip(meta, predictions)):
         if mask.shape[0] != 1024:
