@@ -70,3 +70,19 @@ def iou_metric_batch(y_true_in, y_pred_in):
         value = iou_metric(y_true_in[batch], y_pred_in[batch])
         metric.append(value)
     return np.mean(metric)
+
+
+def intersection_over_union(y_true, y_pred):
+    ious = []
+    for y_t, y_p in list(zip(y_true, y_pred)):
+        iou = compute_ious(y_t, y_p)
+        iou_mean = 1.0 * np.sum(iou) / len(iou)
+        ious.append(iou_mean)
+    return np.mean(ious)
+
+
+def intersection_over_union_thresholds(y_true, y_pred):
+    iouts = []
+    for y_t, y_p in list(zip(y_true, y_pred)):
+        iouts.append(compute_eval_metric(y_t, y_p))
+    return np.mean(iouts)

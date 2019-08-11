@@ -11,6 +11,7 @@ from loader import get_test_loader
 from utils import create_submission
 from model import UNetResNetV4
 from unet_models import UNet11
+import segmentation_models_pytorch as smp
 
 def predict(args, model, checkpoint, out_file):
     print('predicting {}...'.format(checkpoint))
@@ -36,21 +37,22 @@ def predict(args, model, checkpoint, out_file):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Salt segmentation')
-    parser.add_argument('--model_name', default='UNetResNetV4',type=str, help='')
+    parser.add_argument('--model_name', default='resnet34',type=str, help='')
     parser.add_argument('--layers', default=34, type=int, help='model layers')
     parser.add_argument('--nf', default=32, type=int, help='num_filters param for model')
     # parser.add_argument('--ifold', required=True, type=int, help='kfold indices')
-    parser.add_argument('--batch_size', default=5, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=2, type=int, help='batch_size')
     # parser.add_argument('--pad_mode', required=True, choices=['reflect', 'edge', 'resize'], help='pad method')
     # parser.add_argument('--exp_name', default='depths', type=str, help='exp name')
     # parser.add_argument('--meta_version', default=1, type=int, help='meta version')
-    parser.add_argument('--sub_file', default='all_ensemble.csv', type=str, help='submission file')
+    parser.add_argument('--sub_file', default='all_ensemble_1024.csv', type=str, help='submission file')
 
     args = parser.parse_args()
 
     # model = eval(args.model_name)(num_filters=args.nf)
-    model = eval(args.model_name)(args.layers, num_filters=args.nf)
-    checkpoint = "../data/siim-png-images/models/UNetResNetV4_aug_256/best_0.pth"
+    # model = eval(args.model_name)(args.layers, num_filters=args.nf)
+    model = smp.Unet(args.model_name, classes=1, activation='sigmoid', encoder_weights='imagenet').cuda()
+    checkpoint = "../data/siim-png-images/models/resnet34_aug_256/best_0.pth"
     out_file = args.sub_file
     #predict_model(args)
     #ensemble_predict(args)

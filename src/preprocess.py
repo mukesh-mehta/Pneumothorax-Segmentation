@@ -35,14 +35,14 @@ def loss_less_compression(height=config.HEIGHT, width=config.WIDTH):
 		img = Image.open(filename)
 		img = img.resize((height,width),Image.ANTIALIAS)
 		img.save(os.path.join(config.TRAIN_IMG_DIR_RAW+"{}".format(height), row[0]+".png"))
+		
+	for i, row in tqdm(enumerate(df.values)):
+		filename = os.path.join(config.TRAIN_MASK_DIR_RAW, row[0]+".png")
+		img = Image.open(filename)
+		img = img.resize((height,width),Image.ANTIALIAS)
+		img.save(os.path.join(config.TRAIN_MASK_DIR_RAW+"{}".format(height), row[0]+".png"))
 
-		filename = os.path.join(config.TRAIN_MASK_DIR_RAW+"{}".format(height), row[0]+".png")
-		if row[1] != '-1':
-			decoded_mask = rle2mask(row[1], height,width)
-			cv2.imwrite(filename, decoded_mask)
-		else:
-			cv2.imwrite(filename, np.zeros((height,width),dtype='uint8'))
-
+	
 def loss_less_compression_test(height=config.HEIGHT, width=config.WIDTH):
 	df = pd.read_csv(config.TEST_FILE, na_filter=False)
 

@@ -94,11 +94,11 @@ class LoadDatasetCLF(data.Dataset):
         file_id = self.file_list[index]
         
         if self.is_test:
-            image_path = os.path.join(config.TEST_IMG_DIR_RAW, file_id[0] + ".png")
+            image_path = os.path.join(config.TEST_IMG_DIR, file_id[0] + ".png")
             image = load_image(image_path)
             return augment_clf(image, test=True)
         else:
-            image_path = os.path.join(config.TRAIN_IMG_DIR_RAW, file_id[0] + ".png")
+            image_path = os.path.join(config.TRAIN_IMG_DIR, file_id[0] + ".png")
             image = load_image(image_path)
             return augment_clf(image, label = file_id[1])
 
@@ -133,6 +133,7 @@ def load_train_val_dataset(batch_size= 16, num_workers=8, dev_mode=False, is_clf
     dataframe.drop_duplicates(subset=[config.ID_COLUMN], inplace=True)
     dataframe.loc[dataframe[config.ENCODING_COL]!='-1', "has_pneumo"] = 1
     dataframe.loc[dataframe[config.ENCODING_COL]=='-1', "has_pneumo"] = 0
+    dataframe = dataframe.sample(frac=1, random_state=2)
     if is_clf:
         dataframe = dataframe[[config.ID_COLUMN, "has_pneumo"]]
         if dev_mode:
@@ -143,7 +144,7 @@ def load_train_val_dataset(batch_size= 16, num_workers=8, dev_mode=False, is_clf
         val_set = LoadDatasetCLF(create_file_list(val))
 
         train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers,drop_last=False)
-        val_loader = data.DataLoader(val_set, batch_size=int(batch_size/2), shuffle=False, num_workers=num_workers,drop_last=False)
+        val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers,drop_last=False)
         train_loader.num = len(train_set)
         val_loader.num = len(val_set)
         return train_loader, val_loader
@@ -156,7 +157,7 @@ def load_train_val_dataset(batch_size= 16, num_workers=8, dev_mode=False, is_clf
         val_set = LoadDataset(list(val[config.ID_COLUMN].values))
 
         train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers,drop_last=False)
-        val_loader = data.DataLoader(val_set, batch_size=int(batch_size/2), shuffle=False, num_workers=num_workers,drop_last=False)
+        val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers,drop_last=False)
         train_loader.num = len(train_set)
         val_loader.num = len(val_set)
         return train_loader, val_loader

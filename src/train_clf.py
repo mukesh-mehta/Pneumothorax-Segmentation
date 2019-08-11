@@ -58,7 +58,7 @@ def train(args):
 
     # print(summary(model, (3, 1024, 1024)))
     #filename to save models
-    if args.exp_name is None:args.model_name
+    if args.exp_name is None:
         model_file = os.path.join(MODEL_DIR, 'best_{}.pth'.format(args.ifold))
     else:
         model_file = os.path.join(MODEL_DIR, args.exp_name, 'best_{}.pth'.format(args.ifold))
@@ -100,7 +100,6 @@ def train(args):
         val_acc=0
         val_loss = 0
         for batch_idx, data in enumerate(val_loader):
-<<<<<<< HEAD
             image, label = data
             image = image.cuda()
             y_pred = model(Variable(image))
@@ -159,7 +158,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=2, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=8, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     parser.add_argument('--epochs', default=4, type=int, help='epoch')
     parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
