@@ -78,11 +78,11 @@ def rle_encoding(x):
         prev = b
     return run_lengths
     
-def create_submission(meta, predictions, threshold=0.58):
+def create_submission(meta, predictions, threshold=0.24):
     output = []
     for image_id, mask in tqdm(zip(meta, predictions)):
         if mask.shape[0] != 1024:
-            mask = cv2.resize(mask, (1024, 1024), interpolation = cv2.INTER_AREA)
+            mask = cv2.resize(mask, (1024, 1024))
         mask = binarize(mask, threshold)
         rle_encoded = ' '.join(str(rle) for rle in mask2rle(mask))
         output.append([image_id, rle_encoded])

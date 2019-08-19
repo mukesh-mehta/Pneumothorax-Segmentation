@@ -37,7 +37,7 @@ def predict(args, model, checkpoint, out_file):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Salt segmentation')
-    parser.add_argument('--model_name', default='resnet34',type=str, help='')
+    parser.add_argument('--model_name', default='UNetResNetV4',type=str, help='')
     parser.add_argument('--layers', default=34, type=int, help='model layers')
     parser.add_argument('--nf', default=32, type=int, help='num_filters param for model')
     # parser.add_argument('--ifold', required=True, type=int, help='kfold indices')
@@ -50,8 +50,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # model = eval(args.model_name)(num_filters=args.nf)
-    # model = eval(args.model_name)(args.layers, num_filters=args.nf)
-    model = smp.Unet(args.model_name, classes=1, activation='sigmoid', encoder_weights='imagenet').cuda()
+    model = eval(args.model_name)(args.layers, num_filters=args.nf)
+    # model = smp.Unet(args.model_name, classes=1, activation='sigmoid', encoder_weights='imagenet').cuda()
     checkpoint = "../data/siim-png-images/models/resnet34_aug_256/best_0.pth"
     out_file = args.sub_file
     #predict_model(args)
