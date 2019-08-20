@@ -30,7 +30,6 @@ def augment(image, mask=None, test=False, is_clf=False):
                                      ], p=0.3),
                                 OneOf([
                                     ElasticTransform(alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03),
-                                    GridDistortion(),
                                     OpticalDistortion(distort_limit=2, shift_limit=0.5),
                                     ], p=0.3),
                                 # RandomSizedCrop(min_max_height=(128, 256), height=h, width=w,p=0.5),

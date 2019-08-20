@@ -27,11 +27,12 @@ def rle2mask(rle, height, width):
 def load_image(path, mask = False):
     img = cv2.imread(str(path))
     if mask:
-        img = img[:, :, 0:1] // 255
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        img = img.reshape(1, img.shape[0],img.shape[0])
         # img = cv2.resize(img, (config.WIDTH, config.HEIGHT), interpolation = cv2.INTER_AREA) 
         return img#torch.from_numpy(img).float()#.permute([2, 0, 1])
     else:
-        img = img/255.0
+        img = img
         # img = cv2.resize(img, (config.WIDTH, config.HEIGHT), interpolation = cv2.INTER_AREA) 
         return img#torch.from_numpy(img).float().permute([2, 0, 1])
 

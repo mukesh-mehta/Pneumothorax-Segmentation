@@ -20,13 +20,13 @@ from model import UNetResNetV4#, UNetResNetV5, UNetResNetV6, UNet7, UNet8
 from unet_se import UNetResNetSE
 # from lovasz_losses import lovasz_hinge, lovasz_softmax
 from metrics import iou_metric_batch, intersection_over_union, intersection_over_union_thresholds
-from losses import DiceLoss, FocalLoss2d
+from losses import MixedLoss#DiceLoss, FocalLoss2d
 import segmentation_models_pytorch as smp
 # from postprocessing import crop_image, binarize, crop_image_softmax, resize_image
 # from metrics import dice_coeff
 
 MODEL_DIR = config.MODEL_DIR
-focal_loss2d = FocalLoss2d()
+focal_loss2d = MixedLoss(10.0, 2.0)
 
 class CyclicExponentialLR(_LRScheduler):
     def __init__(self, optimizer, gamma, init_lr, min_lr=5e-7, restart_max_lr=1e-5, last_epoch=-1):
@@ -63,9 +63,9 @@ def train(args):
     #load train and val data
     train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode)
 
-    model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
+    # model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
     # model = eval(args.model_name)(num_filters=args.nf).cuda()
-    # model = smp.Unet(args.model_name, classes=1, activation='sigmoid', encoder_weights='imagenet').cuda()
+    model = smp.Unet(args.model_name, classes=1, activation='sigmoid', encoder_weights='imagenet').cuda()
     # print(summary(model, (3, 512,512)))
     
     #filename to save models
@@ -174,7 +174,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=12, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     parser.add_argument('--epochs', default=20, type=int, help='epoch')
     parser.add_argument('--optim', default='Adam', choices=['SGD', 'Adam'], help='optimizer')
@@ -184,7 +184,7 @@ if __name__ == '__main__':
     parser.add_argument('--t_max', default=15, type=int, help='lr scheduler patience')
     parser.add_argument('--pad_mode', default='edge', choices=['reflect', 'edge', 'resize'], help='pad method')
     parser.add_argument('--exp_name', default='resnet34_aug_256', type=str, help='exp name')
-    parser.add_argument('--model_name', default='UNetResNetV4', type=str, help='')
+    parser.add_argument('--model_name', default='resnet34', type=str, help='')
     parser.add_argument('--init_ckp', default=None, type=str, help='resume from checkpoint path')
     parser.add_argument('--val', action='store_true')
     parser.add_argument('--store_loss_model', action='store_true')
