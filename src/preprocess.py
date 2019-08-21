@@ -53,6 +53,6 @@ def loss_less_compression_test(height=config.HEIGHT, width=config.WIDTH):
 		img.save(os.path.join(config.TEST_IMG_DIR_RAW+"{}".format(height), row[0]+".png"))
 
 if __name__ == '__main__':
-	# create_train_mask_imgs()
-	loss_less_compression()
-	loss_less_compression_test()
+	create_train_mask_imgs()
+	# loss_less_compression()
+	# loss_less_compression_test()

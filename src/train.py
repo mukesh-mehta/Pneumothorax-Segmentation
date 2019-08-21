@@ -73,6 +73,7 @@ def train(args):
         model_file = os.path.join(MODEL_DIR, 'best_{}.pth'.format(args.ifold))
     else:
         model_file = os.path.join(MODEL_DIR, args.exp_name, 'best_{}.pth'.format(args.ifold))
+    # model.load_state_dict(torch.load(model_file))
 
     parent_dir = os.path.dirname(model_file)
     if not os.path.exists(parent_dir):
@@ -82,7 +83,7 @@ def train(args):
         optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=0.0001)
     else:
         optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
-    best_loss = 10
+    best_loss = 10#3.075385222274266
     model.train()
     print("epoch | lr | Progress | batch_loss | loss | batch_iou | iou | val_loss | best_loss | val_iou |  time | is_best|")
     for epoch in range(args.epochs):
@@ -171,12 +172,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Salt segmentation')
     parser.add_argument('--layers', default=34, type=int, help='model layers')
     parser.add_argument('--nf', default=32, type=int, help='num_filters param for model')
-    parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
+    parser.add_argument('--lr', default=0.0001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=12, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--epochs', default=20, type=int, help='epoch')
+    parser.add_argument('--epochs', default=25, type=int, help='epoch')
     parser.add_argument('--optim', default='Adam', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument('--lrs', default='cosine', choices=['cosine', 'plateau'], help='LR sceduler')
     parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
