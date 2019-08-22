@@ -1,191 +1,126 @@
-"""
-TODO: 
-1. Augmentations
-2. TTA
-"""
 import os
+import cv2
+import pdb
+import time
+import warnings
+
 import config
+
+import random
+import numpy as np
 import pandas as pd
+from tqdm import tqdm_notebook as tqdm
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from sklearn.model_selection import StratifiedKFold
 import torch
-from torch.utils import data
+import torch.nn as nn
+from torch.nn import functional as F
+import torch.optim as optim
+import torch.backends.cudnn as cudnn
+from torch.utils.data import DataLoader, Dataset, sampler
+from matplotlib import pyplot as plt
+from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize, Compose, GaussNoise)
+from albumentations.torch import ToTensor
+import segmentation_models_pytorch as smp
 
-from utils import load_image, train_test_split_stratified, create_file_list
-from albumentations import (
-    Compose, HorizontalFlip, CLAHE, HueSaturationValue,
-    RandomBrightness, RandomContrast, RandomGamma,OneOf,
-    ToFloat, ShiftScaleRotate,GridDistortion, ElasticTransform, JpegCompression, HueSaturationValue,
-    RGBShift, RandomBrightness, RandomContrast, Blur, MotionBlur, MedianBlur, GaussNoise,CenterCrop,
-    IAAAdditiveGaussianNoise,GaussNoise,OpticalDistortion,RandomSizedCrop
-)
+from utils import rle2mask
 
+class SIIMDataset(Dataset):
+    def __init__(self, df, data_folder, size, mean, std, phase):
+        self.df = df
+        self.root = data_folder
+        self.size = size
+        self.mean = mean
+        self.std = std
+        self.phase = phase
+        self.transforms = get_transforms(phase, size, mean, std)
+        self.gb = self.df.groupby('ImageId')
+        self.fnames = list(self.gb.groups.keys())
 
+    def __getitem__(self, idx):
+        image_id = self.fnames[idx]
+        df = self.gb.get_group(image_id)
+        annotations = df["EncodedPixels"].tolist()
+        image_path = os.path.join(self.root, image_id + ".png")
+        image = cv2.imread(image_path)
+        mask = np.zeros([1024, 1024])
+        if annotations[0] != '-1':
+            # for rle in annotations:
+            mask += rle2mask(annotations[0])
+        mask = (mask >= 1).astype('float32') # for overlap cases
+        augmented = self.transforms(image=image, mask=mask)
+        image = augmented['image']
+        mask = augmented['mask']
+        return image, mask
 
-def augment(image, mask=None, test=False, is_clf=False):
-    AUGMENTATIONS_TRAIN = Compose([
-                                HorizontalFlip(p=0.5),
-                                OneOf([
-                                    RandomContrast(),
-                                    RandomGamma(),
-                                    RandomBrightness(),
-                                     ], p=0.3),
-                                OneOf([
-                                    ElasticTransform(alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03),
-                                    OpticalDistortion(distort_limit=2, shift_limit=0.5),
-                                    ], p=0.3),
-                                # RandomSizedCrop(min_max_height=(128, 256), height=h, width=w,p=0.5),
-                                ToFloat(max_value=1)
-                            ],p=1)
-
-    AUGMENTATIONS_TEST = Compose([
-                            ToFloat(max_value=1)
-                        ],p=1)
-    if test:
-        augmented = AUGMENTATIONS_TEST(image=image)
-        img = torch.from_numpy(image).float().permute([2, 0, 1])
-        return img
-    else:
-        augmented = AUGMENTATIONS_TRAIN(image=image, mask=mask)
-        img = torch.from_numpy(augmented['image']).float().permute([2, 0, 1])
-        mask = torch.from_numpy(augmented['mask']).float()
-        return img, mask
-
-def augment_clf(image, label=None, test=False, is_clf=False):
-    AUGMENTATIONS_TRAIN = Compose([
-                                HorizontalFlip(p=0.5),
-                                OneOf([
-                                    RandomContrast(),
-                                    RandomGamma(),
-                                    RandomBrightness(),
-                                     ], p=0.3),
-                                OneOf([
-                                    ElasticTransform(alpha=120, sigma=120 * 0.05, alpha_affine=120 * 0.03),
-                                    GridDistortion(),
-                                    OpticalDistortion(distort_limit=2, shift_limit=0.5),
-                                    ], p=0.3),
-                                # RandomSizedCrop(min_max_height=(128, 256), height=h, width=w,p=0.5),
-                                ToFloat(max_value=1)
-                            ],p=1)
-
-    AUGMENTATIONS_TEST = Compose([
-                            ToFloat(max_value=1)
-                        ],p=1)
-    if test:
-        augmented = AUGMENTATIONS_TEST(image=image)
-        img = torch.from_numpy(image).float().permute([2, 0, 1])
-        return img
-    else:
-        augmented = AUGMENTATIONS_TRAIN(image=image)
-        img = torch.from_numpy(augmented['image']).float().permute([2, 0, 1])
-        return img, label
-
-class LoadDatasetCLF(data.Dataset):
-    def __init__(self, file_list, is_test = False):
-        self.is_test = is_test
-        self.file_list = file_list
-    
     def __len__(self):
-        return len(self.file_list)
+        return len(self.fnames)
+
+
+def get_transforms(phase, size, mean, std):
+    list_transforms = []
+    if phase == "train":
+        list_transforms.extend(
+            [
+#                 HorizontalFlip(),
+                ShiftScaleRotate(
+                    shift_limit=0,  # no resizing
+                    scale_limit=0.1,
+                    rotate_limit=10, # rotate
+                    p=0.5,
+                    border_mode=cv2.BORDER_CONSTANT
+                ),
+#                 GaussNoise(),
+            ]
+        )
+    list_transforms.extend(
+        [
+            Normalize(mean=mean, std=std, p=1),
+            Resize(size, size),
+            ToTensor(),
+        ]
+    )
+
+    list_trfms = Compose(list_transforms)
+    return list_trfms
+
+def provider(
+    fold,
+    total_folds,
+    data_folder,
+    df_path,
+    phase,
+    size,
+    mean=None,
+    std=None,
+    batch_size=8,
+    num_workers=4,
+):
+    df = pd.read_csv(df_path)
+    df = df.drop_duplicates('ImageId')
+    df_with_mask = df[df["EncodedPixels"] != "-1"]
+    df_with_mask['has_mask'] = 1
+    df_without_mask = df[df["EncodedPixels"] == "-1"]
+    df_without_mask['has_mask'] = 0
+    # print(len(df_with_mask))
+    df_without_mask_sampled = df_without_mask.sample(n=len(df_with_mask))
+    df = pd.concat([df_with_mask, df_without_mask_sampled])
+    #NOTE: equal number of positive and negative cases are chosen.
     
-    def __getitem__(self, index):
-        if index not in range(0, len(self.file_list)):
-            return self.__getitem__(np.random.randint(0, self.__len__()))
-        
-        file_id = self.file_list[index]
-        
-        if self.is_test:
-            image_path = os.path.join(config.TEST_IMG_DIR, file_id[0] + ".png")
-            image = load_image(image_path)
-            return augment_clf(image, test=True)
-        else:
-            image_path = os.path.join(config.TRAIN_IMG_DIR, file_id[0] + ".png")
-            image = load_image(image_path)
-            return augment_clf(image, label = file_id[1])
-
-
-class LoadDataset(data.Dataset):
-    def __init__(self, file_list, is_test = False):
-        self.is_test = is_test
-        self.file_list = file_list
+    kfold = StratifiedKFold(total_folds, shuffle=True, random_state=69)
+    train_idx, val_idx = list(kfold.split(
+        df["ImageId"], df["has_mask"]))[fold]
+    train_df, val_df = df.iloc[train_idx], df.iloc[val_idx]
+    df = train_df if phase == "train" else val_df
+    # NOTE: total_folds=5 -> train/val : 80%/20%
     
-    def __len__(self):
-        return len(self.file_list)
-    
-    def __getitem__(self, index):
-        if index not in range(0, len(self.file_list)):
-            return self.__getitem__(np.random.randint(0, self.__len__()))
-        
-        file_id = self.file_list[index]
-        if self.is_test:
-            image_path = os.path.join(config.TEST_IMG_DIR, file_id + ".png")
-            image = load_image(image_path)
-            return augment(image, test=True)
-        else:
-            image_path = os.path.join(config.TRAIN_IMG_DIR, file_id + ".png")
-            mask_path = os.path.join(config.TRAIN_MASK_DIR, file_id + ".png")
+    image_dataset = SIIMDataset(df, data_folder, size, mean, std, phase)
 
-            image = load_image(image_path)
-            mask = load_image(mask_path, mask = True)
-            return augment(image, mask=mask)
-
-def load_train_val_dataset(batch_size= 16, num_workers=8, dev_mode=False, is_clf=False):
-    dataframe = pd.read_csv(config.ENCODING_FILE)
-    dataframe.drop_duplicates(subset=[config.ID_COLUMN], inplace=True)
-    dataframe.loc[dataframe[config.ENCODING_COL]!='-1', "has_pneumo"] = 1
-    dataframe.loc[dataframe[config.ENCODING_COL]=='-1', "has_pneumo"] = 0
-    dataframe = dataframe.sample(frac=1, random_state=2)
-    if is_clf:
-        dataframe = dataframe[[config.ID_COLUMN, "has_pneumo"]]
-        if dev_mode:
-            dataframe = dataframe.iloc[:100]
-        train, val = train_test_split_stratified(dataframe)
-
-        train_set = LoadDatasetCLF(create_file_list(train))
-        val_set = LoadDatasetCLF(create_file_list(val))
-
-        train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers,drop_last=False)
-        val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers,drop_last=False)
-        train_loader.num = len(train_set)
-        val_loader.num = len(val_set)
-        return train_loader, val_loader
-    else:
-        if dev_mode:
-            dataframe = dataframe.iloc[:100]
-        train, val = train_test_split_stratified(dataframe)
-
-        train_set = LoadDataset(list(train[config.ID_COLUMN].values))
-        val_set = LoadDataset(list(val[config.ID_COLUMN].values))
-
-        train_loader = data.DataLoader(train_set, batch_size=batch_size, shuffle=True, num_workers=num_workers,drop_last=False)
-        val_loader = data.DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=num_workers,drop_last=False)
-        train_loader.num = len(train_set)
-        val_loader.num = len(val_set)
-        return train_loader, val_loader
-
-
-def get_test_loader(batch_size=16, index=0, dev_mode=False):
-    test_meta = pd.read_csv(config.TEST_FILE)
-    # test_meta = test_meta.drop_duplicates(config.ID_COLUMN, keep='last').reset_index(drop=True)
-    test_meta = test_meta[config.ID_COLUMN].values
-    if dev_mode:
-        test_meta = test_meta[:25]
-    test_set = LoadDataset(list(test_meta),is_test = True)
-    test_loader = data.DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=6,drop_last=False)
-    test_loader.num = len(test_set)
-    test_loader.meta = test_meta
-    return test_loader
-
-if __name__ == '__main__':
-    train_loader, val_loader = load_train_val_dataset(batch_size = 10, num_workers=6)
-    for image, mask in train_loader:
-        print("check train")
-        print(image.shape, mask.shape)
-        break
-    for image, mask in val_loader:
-        print("check val")
-        print(image.shape, mask.shape)
-        break
-    test_loader = get_test_loader(batch_size=16, index=0, dev_mode=True)
-    for image in test_loader:
-        print("check test")
-        print(image.shape)
-    print("checked...")
+    dataloader = DataLoader(
+        image_dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_memory=True,
+        shuffle=True,
+    )
+    return dataloader

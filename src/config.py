@@ -1,7 +1,7 @@
 import os
 
-HEIGHT = 1024
-WIDTH = 1024
+HEIGHT = 512
+WIDTH = 512
 
 DATA_DIR = "../data/siim-png-images"
 

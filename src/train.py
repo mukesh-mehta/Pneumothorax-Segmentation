@@ -172,7 +172,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Salt segmentation')
     parser.add_argument('--layers', default=34, type=int, help='model layers')
     parser.add_argument('--nf', default=32, type=int, help='num_filters param for model')
-    parser.add_argument('--lr', default=0.0001, type=float, help='learning rate')
+    parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
     parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
