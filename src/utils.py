@@ -1,16 +1,6 @@
 import numpy as np
-import pandas as pd
-import cv2
-import torch
-from sklearn.model_selection import train_test_split
-from postprocess import binarize
-from tqdm import tqdm
-import config
 
-def create_file_list(dataframe):
-    return [tuple(x) for x in dataframe.values]
-
-def rle2mask(rle, height, width):
+def rle2mask(rle, height=1024, width=1024):
 	mask= np.zeros(width* height)
 	array = np.asarray([int(x) for x in rle.split()])
 	starts = array[0::2]
@@ -24,69 +14,21 @@ def rle2mask(rle, height, width):
 
 	return mask.reshape(width, height)
 
-def load_image(path, mask = False):
-    img = cv2.imread(str(path))
-    if mask:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        img = img.reshape(1, img.shape[0],img.shape[0])
-        # img = cv2.resize(img, (config.WIDTH, config.HEIGHT), interpolation = cv2.INTER_AREA) 
-        return img#torch.from_numpy(img).float()#.permute([2, 0, 1])
-    else:
-        img = img
-        # img = cv2.resize(img, (config.WIDTH, config.HEIGHT), interpolation = cv2.INTER_AREA) 
-        return img#torch.from_numpy(img).float().permute([2, 0, 1])
-
-def train_test_split_stratified(df, test_size = 0.1,random_state=42):
-    df.drop_duplicates(subset=[config.ID_COLUMN], inplace=True)
-    train, val = train_test_split(df, test_size = test_size,random_state=random_state, stratify=df["has_pneumo"])
-    print("Train: {}, Val: {}".format(train.shape, val.shape))
-    return train, val
-
-def mask2rle(img, width=config.WIDTH, height=config.HEIGHT):
+def run_length_encode(component):
+    component = component.T.flatten()
+    start = np.where(component[1:] > component[:-1])[0]+1
+    end = np.where(component[:-1] > component[1:])[0]+1
+    length = end-start
     rle = []
-    lastColor = 0;
-    currentPixel = 0;
-    runStart = -1;
-    runLength = 0;
+    for i in range(len(length)):
+        if i == 0:
+            rle.extend([start[0], length[0]])
+        else:
+            rle.extend([start[i]-end[i-1], length[i]])
+    rle = ' '.join([str(r) for r in rle])
+    return rle
 
-    for x in range(width):
-        for y in range(height):
-            currentColor = img[x][y]
-            if currentColor != lastColor:
-                if currentColor == 1:
-                    runStart = currentPixel;
-                    runLength = 1;
-                else:
-                    rle.append(str(runStart));
-                    rle.append(str(runLength));
-                    runStart = -1;
-                    runLength = 0;
-                    currentPixel = 0;
-            elif runStart > -1:
-                runLength += 1
-            lastColor = currentColor;
-            currentPixel+=1;
-
-    return " ".join(rle)
-
-def rle_encoding(x):
-    dots = np.where(x.T.flatten() == 1)[0]
-    run_lengths = []
-    prev = -2
-    for b in dots:
-        if (b > prev+1): run_lengths.extend((b + 1, 0))
-        run_lengths[-1] += 1
-        prev = b
-    return run_lengths
-    
-def create_submission(meta, predictions, threshold=0.820):
-    output = []
-    for image_id, mask in tqdm(zip(meta, predictions)):
-        if mask.shape[0] != 1024:
-            mask = cv2.resize(mask, (1024, 1024))
-        mask = binarize(mask, threshold)
-        rle_encoded = ' '.join(str(rle) for rle in mask2rle(mask))
-        output.append([image_id, rle_encoded])
-
-    submission = pd.DataFrame(output, columns=[config.ID_COLUMN, config.ENCODING_COL]).astype(str)
-    return submission
+def predict(X, threshold):
+    X_p = np.copy(X)
+    preds = (X_p > threshold).astype('uint8')
+    return preds
