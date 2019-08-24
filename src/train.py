@@ -23,13 +23,18 @@ from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize,
 from albumentations.torch import ToTensor
 import segmentation_models_pytorch as smp
 
+from losses import MixedLoss
+from loader import provider
+from metrics import Meter
+from utils import predict, epoch_log
+
 class Trainer(object):
     '''This class takes care of training and validation of our model'''
     def __init__(self, model):
         self.fold = 1
         self.total_folds = 5
         self.num_workers = 6
-        self.batch_size = {"train": 6, "val": 4}
+        self.batch_size = {"train": 4, "val": 4}
         self.accumulation_steps = 32 // self.batch_size['train']
         self.lr = 5e-4
         self.num_epochs = 40

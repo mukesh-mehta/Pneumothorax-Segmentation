@@ -23,6 +23,8 @@ from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize,
 from albumentations.torch import ToTensor
 import segmentation_models_pytorch as smp
 
+from utils import predict
+
 def metric(probability, truth, threshold=0.5, reduction='none'):
     '''Calculates dice of positive and negative images seperately'''
     '''probability and truth must be torch tensors'''
