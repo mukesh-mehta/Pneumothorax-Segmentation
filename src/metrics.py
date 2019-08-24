@@ -1,88 +1,111 @@
+import os
+import cv2
+import pdb
+import time
+import warnings
+
+import config
+
+import random
 import numpy as np
+import pandas as pd
+from tqdm import tqdm_notebook as tqdm
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from sklearn.model_selection import StratifiedKFold
+import torch
 import torch.nn as nn
-from sklearn.metrics import accuracy_score
+from torch.nn import functional as F
+import torch.optim as optim
+import torch.backends.cudnn as cudnn
+from torch.utils.data import DataLoader, Dataset, sampler
+from matplotlib import pyplot as plt
+from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize, Compose, GaussNoise)
+from albumentations.torch import ToTensor
+import segmentation_models_pytorch as smp
 
-def dice_coeff(output, target, smooth=0, eps=1e-7):
-    return (2 * sum(output * target) + smooth) / (
-            sum(output) + sum(target) + smooth + eps)
+def metric(probability, truth, threshold=0.5, reduction='none'):
+    '''Calculates dice of positive and negative images seperately'''
+    '''probability and truth must be torch tensors'''
+    batch_size = len(truth)
+    with torch.no_grad():
+        probability = probability.view(batch_size, -1)
+        truth = truth.view(batch_size, -1)
+        assert(probability.shape == truth.shape)
 
-def accuracy(logit, target):
-	label = np.int32(nn.Sigmoid()(logit).detach())
-	return accuracy_score(target, label)
+        p = (probability > threshold).float()
+        t = (truth > 0.5).float()
 
-def iou_metric(y_true_in, y_pred_in, print_table=False):
-    labels = y_true_in
-    y_pred = y_pred_in
-    
-    true_objects = 2
-    pred_objects = 2
+        t_sum = t.sum(-1)
+        p_sum = p.sum(-1)
+        neg_index = torch.nonzero(t_sum == 0)
+        pos_index = torch.nonzero(t_sum >= 1)
 
-    intersection = np.histogram2d(labels.flatten(), y_pred.flatten(), bins=(true_objects, pred_objects))[0]
+        dice_neg = (p_sum == 0).float()
+        dice_pos = 2 * (p*t).sum(-1)/((p+t).sum(-1))
 
-    # Compute areas (needed for finding the union between all objects)
-    area_true = np.histogram(labels, bins = true_objects)[0]
-    area_pred = np.histogram(y_pred, bins = pred_objects)[0]
-    area_true = np.expand_dims(area_true, -1)
-    area_pred = np.expand_dims(area_pred, 0)
+        dice_neg = dice_neg[neg_index]
+        dice_pos = dice_pos[pos_index]
+        dice = torch.cat([dice_pos, dice_neg])
 
-    # Compute union
-    union = area_true + area_pred - intersection
+        dice_neg = np.nan_to_num(dice_neg.mean().item(), 0)
+        dice_pos = np.nan_to_num(dice_pos.mean().item(), 0)
+        dice = dice.mean().item()
 
-    # Exclude background from the analysis
-    intersection = intersection[1:,1:]
-    union = union[1:,1:]
-    union[union == 0] = 1e-9
+        num_neg = len(neg_index)
+        num_pos = len(pos_index)
 
-    # Compute the intersection over union
-    iou = intersection / union
+    return dice, dice_neg, dice_pos, num_neg, num_pos
 
-    # Precision helper function
-    def precision_at(threshold, iou):
-        matches = iou > threshold
-        true_positives = np.sum(matches, axis=1) == 1   # Correct objects
-        false_positives = np.sum(matches, axis=0) == 0  # Missed objects
-        false_negatives = np.sum(matches, axis=1) == 0  # Extra objects
-        tp, fp, fn = np.sum(true_positives), np.sum(false_positives), np.sum(false_negatives)
-        return tp, fp, fn
+class Meter:
+    '''A meter to keep track of iou and dice scores throughout an epoch'''
+    def __init__(self, phase, epoch):
+        self.base_threshold = 0.5 # <<<<<<<<<<< here's the threshold
+        self.base_dice_scores = []
+        self.dice_neg_scores = []
+        self.dice_pos_scores = []
+        self.iou_scores = []
 
-    # Loop over IoU thresholds
-    prec = []
-    if print_table:
-        print("Thresh\tTP\tFP\tFN\tPrec.")
-    for t in np.arange(0.5, 1.0, 0.05):
-        tp, fp, fn = precision_at(t, iou)
-        if (tp + fp + fn) > 0:
-            p = tp / (tp + fp + fn)
-        else:
-            p = 0
-        if print_table:
-            print("{:1.3f}\t{}\t{}\t{}\t{:1.3f}".format(t, tp, fp, fn, p))
-        prec.append(p)
-    
-    if print_table:
-        print("AP\t-\t-\t-\t{:1.3f}".format(np.mean(prec)))
-    return np.mean(prec)
+    def update(self, targets, outputs):
+        probs = torch.sigmoid(outputs)
+        dice, dice_neg, dice_pos, _, _ = metric(probs, targets, self.base_threshold)
+        self.base_dice_scores.append(dice)
+        self.dice_pos_scores.append(dice_pos)
+        self.dice_neg_scores.append(dice_neg)
+        preds = predict(probs, self.base_threshold)
+        iou = compute_iou_batch(preds, targets, classes=[1])
+        self.iou_scores.append(iou)
 
-def iou_metric_batch(y_true_in, y_pred_in):
-    batch_size = y_true_in.shape[0]
-    metric = []
-    for batch in range(batch_size):
-        value = iou_metric(y_true_in[batch], y_pred_in[batch])
-        metric.append(value)
-    return np.mean(metric)
+    def get_metrics(self):
+        dice = np.mean(self.base_dice_scores)
+        dice_neg = np.mean(self.dice_neg_scores)
+        dice_pos = np.mean(self.dice_pos_scores)
+        dices = [dice, dice_neg, dice_pos]
+        iou = np.nanmean(self.iou_scores)
+        return dices, iou
 
-
-def intersection_over_union(y_true, y_pred):
+def compute_ious(pred, label, classes, ignore_index=255, only_present=True):
+    '''computes iou for one ground truth mask and predicted mask'''
+    pred[label == ignore_index] = 0
     ious = []
-    for y_t, y_p in list(zip(y_true, y_pred)):
-        iou = compute_ious(y_t, y_p)
-        iou_mean = 1.0 * np.sum(iou) / len(iou)
-        ious.append(iou_mean)
-    return np.mean(ious)
+    for c in classes:
+        label_c = label == c
+        if only_present and np.sum(label_c) == 0:
+            ious.append(np.nan)
+            continue
+        pred_c = pred == c
+        intersection = np.logical_and(pred_c, label_c).sum()
+        union = np.logical_or(pred_c, label_c).sum()
+        if union != 0:
+            ious.append(intersection / union)
+    return ious if ious else [1]
 
 
-def intersection_over_union_thresholds(y_true, y_pred):
-    iouts = []
-    for y_t, y_p in list(zip(y_true, y_pred)):
-        iouts.append(compute_eval_metric(y_t, y_p))
-    return np.mean(iouts)
+def compute_iou_batch(outputs, labels, classes=None):
+    '''computes mean iou for a batch of ground truth masks and predicted masks'''
+    ious = []
+    preds = np.copy(outputs) # copy is imp
+    labels = np.array(labels) # tensor to np
+    for pred, label in zip(preds, labels):
+        ious.append(np.nanmean(compute_ious(pred, label, classes)))
+    iou = np.nanmean(ious)
+    return iou
