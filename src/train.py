@@ -1,212 +1,128 @@
 import os
-import argparse
-import logging as log
+import cv2
+import pdb
 import time
-import numpy as np
-from tqdm import tqdm
+import warnings
 
+import config
+
+import random
+import numpy as np
+import pandas as pd
+from tqdm import tqdm_notebook as tqdm
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from sklearn.model_selection import StratifiedKFold
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 import torch.optim as optim
-import torch.nn.functional as F
-from torch.autograd import Variable
-from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, _LRScheduler, ReduceLROnPlateau
-import pdb
-import config
-from torchsummary import summary
-from loader import load_train_val_dataset# add_depth_channel
-from unet_models import UNet11, UNetResNet
-from model import UNetResNetV4#, UNetResNetV5, UNetResNetV6, UNet7, UNet8
-from unet_se import UNetResNetSE
-# from lovasz_losses import lovasz_hinge, lovasz_softmax
-from metrics import iou_metric_batch, intersection_over_union, intersection_over_union_thresholds
-from losses import MixedLoss#DiceLoss, FocalLoss2d
+import torch.backends.cudnn as cudnn
+from torch.utils.data import DataLoader, Dataset, sampler
+from matplotlib import pyplot as plt
+from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize, Compose, GaussNoise)
+from albumentations.torch import ToTensor
 import segmentation_models_pytorch as smp
-# from postprocessing import crop_image, binarize, crop_image_softmax, resize_image
-# from metrics import dice_coeff
 
-MODEL_DIR = config.MODEL_DIR
-focal_loss2d = MixedLoss(10.0, 2.0)
-
-class CyclicExponentialLR(_LRScheduler):
-    def __init__(self, optimizer, gamma, init_lr, min_lr=5e-7, restart_max_lr=1e-5, last_epoch=-1):
-        self.gamma = gamma
-        self.last_lr = init_lr
-        self.min_lr = min_lr
-        self.restart_max_lr = restart_max_lr
-        super(CyclicExponentialLR, self).__init__(optimizer, last_epoch)
-
-    def get_lr(self):
-        lr = self.last_lr * self.gamma
-        if lr < self.min_lr:
-            lr = self.restart_max_lr
-        self.last_lr = lr
-        return [lr]*len(self.base_lrs)
-
-def criterion(logit, truth):
-    # print(logit.shape, truth.shape)
-    # logit  = logit.view(truth.shape)
-    # print(logit.shape, truth.shape)
-    # loss = DiceLoss()
-    # loss = smp.utils.losses.BCEDiceLoss(eps=1.)
-    return focal_loss2d(logit, truth)
-
-def get_lrs(optimizer):
-    lrs = []
-    for pgs in optimizer.state_dict()['param_groups']:
-        lrs.append(pgs['lr'])
-    lrs = ['{:.6f}'.format(x) for x in lrs]
-    return lrs
-
-def train(args):
-    print("start training....")
-    #load train and val data
-    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode)
-
-    # model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
-    # model = eval(args.model_name)(num_filters=args.nf).cuda()
-    model = smp.Unet(args.model_name, classes=1, activation='sigmoid', encoder_weights='imagenet').cuda()
-    # print(summary(model, (3, 512,512)))
-    
-    #filename to save models
-    if args.exp_name is None:
-        model_file = os.path.join(MODEL_DIR, 'best_{}.pth'.format(args.ifold))
-    else:
-        model_file = os.path.join(MODEL_DIR, args.exp_name, 'best_{}.pth'.format(args.ifold))
-    # model.load_state_dict(torch.load(model_file))
-
-    parent_dir = os.path.dirname(model_file)
-    if not os.path.exists(parent_dir):
-        os.makedirs(parent_dir)
-
-    if args.optim == 'Adam':
-        optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=0.0001)
-    else:
-        optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
-    best_loss = 10#3.075385222274266
-    model.train()
-    print("epoch | lr | Progress | batch_loss | loss | batch_iou | iou | val_loss | best_loss | val_iou |  time | is_best|")
-    for epoch in range(args.epochs):
-        current_lr = get_lrs(optimizer)
-        train_loss = 0
-        train_iou = 0
-        bg = time.time()
-        for batch_idx, data in enumerate(train_loader):
-            torch.cuda.empty_cache()
-            image, mask = data
-            image = image.type(torch.FloatTensor).cuda()
-            y_pred = model(Variable(image))
-
-            loss = criterion(y_pred, Variable(mask.cuda()))
-            iou = smp.utils.metrics.IoUMetric(threshold=0.5)(y_pred, Variable(mask.cuda()))
-            
-            optimizer.zero_grad()
-            loss.backward()
-
-            optimizer.step()
-            train_loss += loss.item()
-            train_iou += iou.item()
-            print('\r {:4d} | {:.5f} | {:4d}/{} | {:.4f} | {:.4f} | {:.4f} | {:.4f} |'.format(
-                epoch, float(current_lr[0]), args.batch_size*(batch_idx+1), train_loader.num, loss.item(), train_loss/(batch_idx+1), iou.item(), train_iou/(batch_idx+1)), end='')
+class Trainer(object):
+    '''This class takes care of training and validation of our model'''
+    def __init__(self, model):
+        self.fold = 1
+        self.total_folds = 5
+        self.num_workers = 6
+        self.batch_size = {"train": 6, "val": 4}
+        self.accumulation_steps = 32 // self.batch_size['train']
+        self.lr = 5e-4
+        self.num_epochs = 40
+        self.best_loss = float("inf")
+        self.phases = ["train", "val"]
+        self.device = torch.device("cuda:0")
+        torch.set_default_tensor_type("torch.cuda.FloatTensor")
+        self.net = model
+        self.criterion = MixedLoss(10.0, 2.0)
+        self.optimizer = optim.Adam(self.net.parameters(), lr=self.lr)
+        self.scheduler = ReduceLROnPlateau(self.optimizer, mode="min", patience=3, verbose=True)
+        self.net = self.net.to(self.device)
+        cudnn.benchmark = True
+        self.dataloaders = {
+            phase: provider(
+                fold=1,
+                total_folds=5,
+                data_folder=config.TRAIN_IMG_DIR_RAW,
+                df_path=config.ENCODING_FILE,
+                phase=phase,
+                size=config.HEIGHT,
+                mean=(0.485, 0.456, 0.406),
+                std=(0.229, 0.224, 0.225),
+                batch_size=self.batch_size[phase],
+                num_workers=self.num_workers,
+            )
+            for phase in self.phases
+        }
+        self.losses = {phase: [] for phase in self.phases}
+        self.iou_scores = {phase: [] for phase in self.phases}
+        self.dice_scores = {phase: [] for phase in self.phases}
         
-        del loss, iou
-        val_loss = 0
-        val_iou = 0
-        with torch.no_grad():
-            for batch_idx, data in enumerate(val_loader):
-                image, mask = data
-                image = image.cuda()
-                y_pred = model(Variable(image))
+    def forward(self, images, targets):
+        images = images.to(self.device)
+        masks = targets.to(self.device)
+        outputs = self.net(images)
+        loss = self.criterion(outputs, masks)
+        return loss, outputs
 
-                loss = criterion(y_pred, Variable(mask.cuda()))
-                val_loss+= loss.item()
-
-                iou = smp.utils.metrics.IoUMetric(threshold=0.5)(y_pred, Variable(mask.cuda()))
-                val_iou += iou.item()
-
-            _save_ckp = ''
-            loss = val_loss/(batch_idx+1)
-            if loss < best_loss:
-                best_loss = loss
-                torch.save(model.state_dict(), model_file)
-                _save_ckp = '*'
-        
-
-        print(' {} | {} | {} | {} | {} |'.format(
-            val_loss/(batch_idx+1), best_loss, val_iou/(batch_idx+1), (time.time() - bg) / 60, _save_ckp))
-        
-        log.info('epoch {}: train loss: {:.4f} best loss: {:.4f} lr: {} {}'
-            .format(epoch, train_loss, best_loss, current_lr, _save_ckp))
-        del image, mask, data, loss, train_loss, val_iou, train_iou, iou
+    def iterate(self, epoch, phase):
+        meter = Meter(phase, epoch)
+        start = time.strftime("%H:%M:%S")
+        print(f"Starting epoch: {epoch} | phase: {phase} | ⏰: {start}")
+        batch_size = self.batch_size[phase]
+        self.net.train(phase == "train")
+        dataloader = self.dataloaders[phase]
+        running_loss = 0.0
+        total_batches = len(dataloader)
+#         tk0 = tqdm(dataloader, total=total_batches)
+        self.optimizer.zero_grad()
+        for itr, batch in enumerate(dataloader):
+            images, targets = batch
+            loss, outputs = self.forward(images, targets)
+            loss = loss / self.accumulation_steps
+            if phase == "train":
+                loss.backward()
+                if (itr + 1 ) % self.accumulation_steps == 0:
+                    self.optimizer.step()
+                    self.optimizer.zero_grad()
+            running_loss += loss.item()
+            outputs = outputs.detach().cpu()
+            meter.update(targets, outputs)
+#             tk0.set_postfix(loss=(running_loss / ((itr + 1))))
+        epoch_loss = (running_loss * self.accumulation_steps) / total_batches
+        dice, iou = epoch_log(phase, epoch, epoch_loss, meter, start)
+        self.losses[phase].append(epoch_loss)
+        self.dice_scores[phase].append(dice)
+        self.iou_scores[phase].append(iou)
         torch.cuda.empty_cache()
-    print(model_file)
-    print("best iou")
-    get_threshold_iou(model, model_file)
+        return epoch_loss
 
-def get_threshold_iou(model, checkpoint):
-    model.load_state_dict(torch.load(checkpoint))
-    model = model.cuda()
-    model.eval()
-    train_loader, val_loader = load_train_val_dataset(batch_size = 10, num_workers=1, dev_mode = args.dev_mode)
-    print(val_loader.num)
-    val_truth=[]
-    val_pred=[]
-    for data in tqdm(val_loader):
-        # print('\r {}'.format(batch_idx),end=' ')
-        image, mask = data
-        image = image.cuda()
-        val_pred.extend(torch.sigmoid(model(Variable(image))).cpu().data.numpy())
-        val_truth.extend(mask.cpu().data.numpy())
-
-    val_pred = np.array(val_pred)
-    val_truth = np.array(val_truth)
-    thresholds = np.linspace(0.2, 0.9, 31)
-    ious = np.array([iou_metric_batch(val_truth, np.int32(val_pred > threshold)) for threshold in tqdm(thresholds)])
-    threshold_best_index = np.argmax(ious) 
-    iou_best = ious[threshold_best_index]
-    threshold_best = thresholds[threshold_best_index]
-    print(threshold_best, iou_best)
+    def start(self):
+        for epoch in range(self.num_epochs):
+            self.iterate(epoch, "train")
+            state = {
+                "epoch": epoch,
+                "best_loss": self.best_loss,
+                "state_dict": self.net.state_dict(),
+                "optimizer": self.optimizer.state_dict(),
+            }
+            val_loss = self.iterate(epoch, "val")
+            self.scheduler.step(val_loss)
+            if val_loss < self.best_loss:
+                print("******** New optimal found, saving state ********")
+                state["best_loss"] = self.best_loss = val_loss
+                torch.save(state, "./model.pth")
+            print()
 
 if __name__ == '__main__':
-    
-    parser = argparse.ArgumentParser(description='Salt segmentation')
-    parser.add_argument('--layers', default=34, type=int, help='model layers')
-    parser.add_argument('--nf', default=32, type=int, help='num_filters param for model')
-    parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
-    parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
-    parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
-    parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--epochs', default=25, type=int, help='epoch')
-    parser.add_argument('--optim', default='Adam', choices=['SGD', 'Adam'], help='optimizer')
-    parser.add_argument('--lrs', default='cosine', choices=['cosine', 'plateau'], help='LR sceduler')
-    parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
-    parser.add_argument('--factor', default=0.5, type=float, help='lr scheduler factor')
-    parser.add_argument('--t_max', default=15, type=int, help='lr scheduler patience')
-    parser.add_argument('--pad_mode', default='edge', choices=['reflect', 'edge', 'resize'], help='pad method')
-    parser.add_argument('--exp_name', default='resnet34_aug_256', type=str, help='exp name')
-    parser.add_argument('--model_name', default='resnet34', type=str, help='')
-    parser.add_argument('--init_ckp', default=None, type=str, help='resume from checkpoint path')
-    parser.add_argument('--val', action='store_true')
-    parser.add_argument('--store_loss_model', action='store_true')
-    parser.add_argument('--train_cls', action='store_true')
-    parser.add_argument('--meta_version', default=1, type=int, help='meta version')
-    parser.add_argument('--pseudo', action='store_true')
-    
-    args = parser.parse_args()
-    args.dev_mode=False
-    print(args)
-    # model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
-    # model_file = "../data/siim-png-images/models/UNetResNetV4_aug_256/best_0.pth"
-    # get_threshold_iou(model, model_file)
-    ifolds = [int(x) for x in args.ifolds.split(',')]
-    print(ifolds)
-    log.basicConfig(
-        filename = 'trainlog_{}.txt'.format(''.join([str(x) for x in ifolds])), 
-        format   = '%(asctime)s : %(message)s',
-        datefmt  = '%Y-%m-%d %H:%M:%S', 
-        level = log.INFO)
-    log.info(args)
-    for i in ifolds:
-        args.ifold = i
-        train(args)
+    model = smp.Unet("resnet34", encoder_weights="imagenet", activation=None)
+    model_trainer = Trainer(model)
+    model_trainer.start()
+
+    losses = model_trainer.losses
+    dice_scores = model_trainer.dice_scores # overall dice
+    iou_scores = model_trainer.iou_scores
