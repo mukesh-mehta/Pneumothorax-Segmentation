@@ -23,7 +23,7 @@ from albumentations import (HorizontalFlip, ShiftScaleRotate, Normalize, Resize,
 from albumentations.torch import ToTensor
 import segmentation_models_pytorch as smp
 
-from utils import rle2mask
+from utils import rle2mask, run_length_decode
 
 class SIIMDataset(Dataset):
     def __init__(self, df, data_folder, size, mean, std, phase):
@@ -40,13 +40,13 @@ class SIIMDataset(Dataset):
     def __getitem__(self, idx):
         image_id = self.fnames[idx]
         df = self.gb.get_group(image_id)
-        annotations = df["EncodedPixels"].tolist()
+        annotations = df['EncodedPixels'].tolist()
         image_path = os.path.join(self.root, image_id + ".png")
         image = cv2.imread(image_path)
         mask = np.zeros([1024, 1024])
         if annotations[0] != '-1':
-            # for rle in annotations:
-            mask += rle2mask(annotations[0])
+            for rle in annotations:
+                mask += run_length_decode(rle)
         mask = (mask >= 1).astype('float32') # for overlap cases
         augmented = self.transforms(image=image, mask=mask)
         image = augmented['image']
