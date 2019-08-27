@@ -30,9 +30,9 @@ from utils import predict, epoch_log
 
 class Trainer(object):
     '''This class takes care of training and validation of our model'''
-    def __init__(self, model):
-        self.fold = 1
-        self.total_folds = 5
+    def __init__(self, model, fold):
+        self.fold = fold
+        self.total_folds = 10
         self.num_workers = 6
         self.batch_size = {"train": 4, "val": 4}
         self.accumulation_steps = 32 // self.batch_size['train']
@@ -50,8 +50,8 @@ class Trainer(object):
         cudnn.benchmark = True
         self.dataloaders = {
             phase: provider(
-                fold=1,
-                total_folds=5,
+                fold=self.fold,
+                total_folds=self.total_folds,
                 data_folder=config.TRAIN_IMG_DIR_RAW,
                 df_path=config.ENCODING_FILE,
                 phase=phase,
@@ -120,14 +120,15 @@ class Trainer(object):
             if val_loss < self.best_loss:
                 print("******** New optimal found, saving state ********")
                 state["best_loss"] = self.best_loss = val_loss
-                torch.save(state, "./model.pth")
+                torch.save(state, "./model_{}.pth".format(self.fold))
             print()
 
 if __name__ == '__main__':
-    model = smp.Unet("resnet34", encoder_weights="imagenet", activation=None)
-    model_trainer = Trainer(model)
-    model_trainer.start()
+    for i in range(0,10):
+        model = smp.Unet("resnet34", encoder_weights="imagenet", activation=None)
+        model_trainer = Trainer(model, i)
+        model_trainer.start()
 
-    losses = model_trainer.losses
-    dice_scores = model_trainer.dice_scores # overall dice
-    iou_scores = model_trainer.iou_scores
+        losses = model_trainer.losses
+        dice_scores = model_trainer.dice_scores # overall dice
+        iou_scores = model_trainer.iou_scores

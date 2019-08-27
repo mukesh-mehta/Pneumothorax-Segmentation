@@ -1,19 +1,5 @@
 import numpy as np
 
-def rle2mask(rle, height=1024, width=1024):
-	mask= np.zeros(width* height)
-	array = np.asarray([int(x) for x in rle.split()])
-	starts = array[0::2]
-	lengths = array[1::2]
-
-	current_position = 0
-	for index, start in enumerate(starts):
-	    current_position += start
-	    mask[current_position:current_position+lengths[index]] = 255
-	    current_position += lengths[index]
-
-	return mask.reshape(width, height)
-
 def run_length_decode(rle, height=1024, width=1024, fill_value=1):
     component = np.zeros((height, width), np.float32)
     component = component.reshape(-1)
