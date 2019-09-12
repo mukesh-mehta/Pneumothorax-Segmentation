@@ -14,19 +14,13 @@ from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, _LRSchedu
 import pdb
 import config
 from torchsummary import summary
-from loader import load_train_val_dataset# add_depth_channel
-from unet_models import UNet11, UNetResNet
-from model import UNetResNetV4#, UNetResNetV5, UNetResNetV6, UNet7, UNet8
-from unet_se import UNetResNetSE
-# from lovasz_losses import lovasz_hinge, lovasz_softmax
-from metrics import iou_metric_batch, intersection_over_union, intersection_over_union_thresholds
-from losses import MixedLoss#DiceLoss, FocalLoss2d
-import segmentation_models_pytorch as smp
-# from postprocessing import crop_image, binarize, crop_image_softmax, resize_image
-# from metrics import dice_coeff
+from loader import load_train_val_dataset
+from metrics import accuracy
+# from losses import DiceLoss, FocalLoss2d
+from cnn_finetune import make_model
 
-MODEL_DIR = config.MODEL_DIR
-focal_loss2d = MixedLoss(10.0, 2.0)
+MODEL_DIR = config.CLF_MODEL_DIR
+# focal_loss2d = FocalLoss2d()
 
 class CyclicExponentialLR(_LRScheduler):
     def __init__(self, optimizer, gamma, init_lr, min_lr=5e-7, restart_max_lr=1e-5, last_epoch=-1):
@@ -44,12 +38,9 @@ class CyclicExponentialLR(_LRScheduler):
         return [lr]*len(self.base_lrs)
 
 def criterion(logit, truth):
-    # print(logit.shape, truth.shape)
-    # logit  = logit.view(truth.shape)
-    # print(logit.shape, truth.shape)
-    # loss = DiceLoss()
-    # loss = smp.utils.losses.BCEDiceLoss(eps=1.)
-    return focal_loss2d(logit, truth)
+    # print(type(logit[0]), type(truth))
+    loss =  nn.BCELoss()
+    return loss(nn.Sigmoid()(logit), truth)
 
 def get_lrs(optimizer):
     lrs = []
@@ -61,19 +52,16 @@ def get_lrs(optimizer):
 def train(args):
     print("start training....")
     #load train and val data
-    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode)
+    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode, is_clf=True)
 
-    # model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
-    # model = eval(args.model_name)(num_filters=args.nf).cuda()
-    model = smp.Unet(args.model_name, classes=1, activation='sigmoid', encoder_weights='imagenet').cuda()
-    # print(summary(model, (3, 512,512)))
-    
+    model = make_model(args.model_name, num_classes=1, pretrained=True, input_size=(1024, 1024)).cuda()
+
+    # print(summary(model, (3, 1024, 1024)))
     #filename to save models
     if args.exp_name is None:
         model_file = os.path.join(MODEL_DIR, 'best_{}.pth'.format(args.ifold))
     else:
         model_file = os.path.join(MODEL_DIR, args.exp_name, 'best_{}.pth'.format(args.ifold))
-    # model.load_state_dict(torch.load(model_file))
 
     parent_dir = os.path.dirname(model_file)
     if not os.path.exists(parent_dir):
@@ -83,76 +71,71 @@ def train(args):
         optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=0.0001)
     else:
         optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9, weight_decay=0.0001)
-    best_loss = 10#3.075385222274266
+    best_loss = 10
     model.train()
-    print("epoch | lr | Progress | batch_loss | loss | batch_iou | iou | val_loss | best_loss | val_iou |  time | is_best|")
+    print("epoch | lr | Progress | batch_loss | loss | batch_acc | acc | val_loss | val_acc | best_loss | time | is_best|")
     for epoch in range(args.epochs):
         current_lr = get_lrs(optimizer)
         train_loss = 0
-        train_iou = 0
+        total_acc = 0
         bg = time.time()
         for batch_idx, data in enumerate(train_loader):
-            torch.cuda.empty_cache()
-            image, mask = data
+            optimizer.zero_grad()
+            image, label = data
             image = image.type(torch.FloatTensor).cuda()
             y_pred = model(Variable(image))
 
-            loss = criterion(y_pred, Variable(mask.cuda()))
-            iou = smp.utils.metrics.IoUMetric(threshold=0.5)(y_pred, Variable(mask.cuda()))
-            
-            optimizer.zero_grad()
+            loss = criterion(y_pred, Variable(label.float().view(-1,1).cuda()))
             loss.backward()
-
             optimizer.step()
+
             train_loss += loss.item()
-            train_iou += iou.item()
+            acc = accuracy(y_pred.cpu(),label)
+            total_acc += acc
+            tot_loss = train_loss/(batch_idx+1)
             print('\r {:4d} | {:.5f} | {:4d}/{} | {:.4f} | {:.4f} | {:.4f} | {:.4f} |'.format(
-                epoch, float(current_lr[0]), args.batch_size*(batch_idx+1), train_loader.num, loss.item(), train_loss/(batch_idx+1), iou.item(), train_iou/(batch_idx+1)), end='')
+                epoch, float(current_lr[0]), args.batch_size*(batch_idx+1), train_loader.num, loss.item(), tot_loss, acc, total_acc/(batch_idx+1)), end='')
         
-        del loss, iou
+        del loss
+        val_acc=0
         val_loss = 0
-        val_iou = 0
-        with torch.no_grad():
-            for batch_idx, data in enumerate(val_loader):
-                image, mask = data
-                image = image.cuda()
-                y_pred = model(Variable(image))
+        for batch_idx, data in enumerate(val_loader):
+            image, label = data
+            image = image.cuda()
+            y_pred = model(Variable(image))
 
-                loss = criterion(y_pred, Variable(mask.cuda()))
-                val_loss+= loss.item()
+            loss = criterion(y_pred, Variable(label.float().view(-1,1).cuda()))
+            val_loss+= loss.item()
+            val_acc += accuracy(y_pred.cpu(),label)
 
-                iou = smp.utils.metrics.IoUMetric(threshold=0.5)(y_pred, Variable(mask.cuda()))
-                val_iou += iou.item()
-
-            _save_ckp = ''
-            loss = val_loss/(batch_idx+1)
-            if loss < best_loss:
-                best_loss = loss
-                torch.save(model.state_dict(), model_file)
-                _save_ckp = '*'
+        _save_ckp = ''
+        loss = val_loss/(batch_idx+1)
+        if loss < best_loss:
+            best_loss = loss
+            torch.save(model.state_dict(), model_file)
+            _save_ckp = '*'
         
 
         print(' {} | {} | {} | {} | {} |'.format(
-            val_loss/(batch_idx+1), best_loss, val_iou/(batch_idx+1), (time.time() - bg) / 60, _save_ckp))
+            val_loss/(batch_idx+1), val_acc/(batch_idx+1),best_loss, (time.time() - bg) / 60, _save_ckp))
         
-        log.info('epoch {}: train loss: {:.4f} best loss: {:.4f} lr: {} {}'
-            .format(epoch, train_loss, best_loss, current_lr, _save_ckp))
-        del image, mask, data, loss, train_loss, val_iou, train_iou, iou
+        log.info('epoch {}: train loss: {:.4f} val acc: {:.4f} best loss: {:.4f} lr: {} {}'
+            .format(epoch, tot_loss, val_acc/(batch_idx+1), best_loss, current_lr, _save_ckp))
+        del image, label, data, loss, train_loss, total_acc, val_acc, val_loss, tot_loss
         torch.cuda.empty_cache()
+        time.sleep(10)
     print(model_file)
-    print("best iou")
-    get_threshold_iou(model, model_file)
+    # print("best iou")
+    # get_threshold_iou(model, model_file)
 
 def get_threshold_iou(model, checkpoint):
     model.load_state_dict(torch.load(checkpoint))
     model = model.cuda()
-    model.eval()
-    train_loader, val_loader = load_train_val_dataset(batch_size = 10, num_workers=1, dev_mode = args.dev_mode)
-    print(val_loader.num)
+
+    train_loader, val_loader = load_train_val_dataset(batch_size = args.batch_size, num_workers=6, dev_mode = args.dev_mode)
     val_truth=[]
     val_pred=[]
-    for data in tqdm(val_loader):
-        # print('\r {}'.format(batch_idx),end=' ')
+    for batch_idx, data in enumerate(val_loader):
         image, mask = data
         image = image.cuda()
         val_pred.extend(torch.sigmoid(model(Variable(image))).cpu().data.numpy())
@@ -175,16 +158,16 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
     parser.add_argument('--min_lr', default=0.0001, type=float, help='min learning rate')
     parser.add_argument('--ifolds', default='0', type=str, help='kfold indices')
-    parser.add_argument('--batch_size', default=4, type=int, help='batch_size')
+    parser.add_argument('--batch_size', default=8, type=int, help='batch_size')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
-    parser.add_argument('--epochs', default=25, type=int, help='epoch')
-    parser.add_argument('--optim', default='Adam', choices=['SGD', 'Adam'], help='optimizer')
+    parser.add_argument('--epochs', default=4, type=int, help='epoch')
+    parser.add_argument('--optim', default='SGD', choices=['SGD', 'Adam'], help='optimizer')
     parser.add_argument('--lrs', default='cosine', choices=['cosine', 'plateau'], help='LR sceduler')
     parser.add_argument('--patience', default=6, type=int, help='lr scheduler patience')
     parser.add_argument('--factor', default=0.5, type=float, help='lr scheduler factor')
     parser.add_argument('--t_max', default=15, type=int, help='lr scheduler patience')
     parser.add_argument('--pad_mode', default='edge', choices=['reflect', 'edge', 'resize'], help='pad method')
-    parser.add_argument('--exp_name', default='resnet34_aug_256', type=str, help='exp name')
+    parser.add_argument('--exp_name', default='resnet34', type=str, help='exp name')
     parser.add_argument('--model_name', default='resnet34', type=str, help='')
     parser.add_argument('--init_ckp', default=None, type=str, help='resume from checkpoint path')
     parser.add_argument('--val', action='store_true')
@@ -196,9 +179,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
     args.dev_mode=False
     print(args)
-    # model = eval(args.model_name)(args.layers, num_filters=args.nf).cuda()
-    # model_file = "../data/siim-png-images/models/UNetResNetV4_aug_256/best_0.pth"
-    # get_threshold_iou(model, model_file)
     ifolds = [int(x) for x in args.ifolds.split(',')]
     print(ifolds)
     log.basicConfig(
