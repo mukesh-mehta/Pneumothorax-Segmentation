@@ -1,18 +1,19 @@
 import numpy as np
 
-def rle2mask(rle, height=1024, width=1024):
-	mask= np.zeros(width* height)
-	array = np.asarray([int(x) for x in rle.split()])
-	starts = array[0::2]
-	lengths = array[1::2]
-
-	current_position = 0
-	for index, start in enumerate(starts):
-	    current_position += start
-	    mask[current_position:current_position+lengths[index]] = 255
-	    current_position += lengths[index]
-
-	return mask.reshape(width, height)
+def run_length_decode(rle, height=1024, width=1024, fill_value=1):
+    component = np.zeros((height, width), np.float32)
+    component = component.reshape(-1)
+    rle = np.array([int(s) for s in rle.strip().split(' ')])
+    print(rle.shape)
+    rle = rle.reshape(-1, 2)
+    start = 0
+    for index, length in rle:
+        start = start+index
+        end = start+length
+        component[start: end] = fill_value
+        start = end
+    component = component.reshape(width, height).T
+    return component
 
 def run_length_encode(component):
     component = component.T.flatten()
@@ -27,7 +28,7 @@ def run_length_encode(component):
             rle.extend([start[i]-end[i-1], length[i]])
     rle = ' '.join([str(r) for r in rle])
     return rle
-
+    
 def predict(X, threshold):
     X_p = np.copy(X)
     preds = (X_p > threshold).astype('uint8')

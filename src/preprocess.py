@@ -18,13 +18,12 @@ def create_train_mask_imgs():
 
 	for i, row in tqdm(enumerate(df.values)):
 		filename = os.path.join(config.TRAIN_MASK_DIR, row[0]+".png")
-		if row[1] != '-1':
-			decoded_mask = rle2mask(row[1], config.HEIGHT,config.WIDTH)
-			#rgb_mask = cv2.cvtColor(decoded_mask,cv2.COLOR_GRAY2RGB)
-			# print(filename)
-			cv2.imwrite(filename, decoded_mask)
-		else:
-			cv2.imwrite(filename, np.zeros((1024,1024),dtype='uint8'))
+        mask = np.zeros([1024, 1024])
+		if annotations[0] != '-1':
+            for rle in annotations:
+                mask += run_length_decode(rle)
+    	mask = (mask >= 1).astype('float32')
+		cv2.imwrite(filename, decoded_mask)
 
 def loss_less_compression(height=config.HEIGHT, width=config.WIDTH):
 	df = pd.read_csv(config.ENCODING_FILE, na_filter=False)
